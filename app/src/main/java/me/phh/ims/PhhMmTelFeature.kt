@@ -167,9 +167,17 @@ class PhhMmTelFeature(val slotId: Int) : PhhMmTelFeatureProtected(slotId) {
         // register SIP here and call onRegistered after .. register.
         val imsService = PhhImsService.Companion.instance!!
         sipHandler = SipHandler(imsService)
-        sipHandler.imsFailureCallback = { imsService.getRegistration(slotId).onDeregistered(null) }
+        sipHandler.imsFailureCallback = {
+            imsService.getRegistration(slotId).onDeregistered(null)
+        }
+        sipHandler.imsRegisteringCallback = { tech ->
+            Rlog.d(TAG, "IMS SIP registering, reporting registration tech $tech")
+            imsService.getRegistration(slotId).onRegistering(tech)
+        }
         sipHandler.imsReadyCallback = {
-            imsService.getRegistration(slotId).onRegistered(REGISTRATION_TECH_LTE)
+            val tech = sipHandler.getRegistrationTech()
+            Rlog.d(TAG, "IMS SIP registered, reporting registration tech $tech")
+            imsService.getRegistration(slotId).onRegistered(tech)
         }
         imsSms.sipHandler = sipHandler
         sipHandler.onSmsReceived = imsSms::onSmsReceived
@@ -274,8 +282,6 @@ class PhhMmTelFeature(val slotId: Int) : PhhMmTelFeatureProtected(slotId) {
                 )
             }
         }
-
-        imsService.getRegistration(slotId).onRegistering(REGISTRATION_TECH_LTE)
         sipHandler.getVolteNetwork()
     }
 

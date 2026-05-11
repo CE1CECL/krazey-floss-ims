@@ -16,6 +16,8 @@ import android.telephony.Rlog
 import android.telephony.SmsManager
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
+import android.telephony.ims.stub.ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN
+import android.telephony.ims.stub.ImsRegistrationImplBase.REGISTRATION_TECH_LTE
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -187,6 +189,8 @@ class SipHandler(val ctxt: Context) {
     private var imsReady = false
     var imsReadyCallback: (() -> Unit)? = null
     var imsFailureCallback: (() -> Unit)? = null
+    var imsRegisteringCallback: ((Int) -> Unit)? = null
+    private var imsRegistrationTech = REGISTRATION_TECH_LTE
     var onSmsReceived: ((Int, String, ByteArray) -> Unit)? = null
     var onSmsStatusReportReceived: ((Int, String, ByteArray) -> Unit)? = null
     var onIncomingCall: ((handle: Object, from: String, extras: Map<String, String>) -> Unit)? =
@@ -273,6 +277,33 @@ class SipHandler(val ctxt: Context) {
             cbLock.withLock { responseCallbacks -= callId }
         }
         return true
+    }
+
+    fun getRegistrationTech(): Int = imsRegistrationTech
+
+    private fun registrationTechName(tech: Int): String = when (tech) {
+        REGISTRATION_TECH_IWLAN -> "IWLAN"
+        REGISTRATION_TECH_LTE -> "LTE"
+        else -> "unknown($tech)"
+    }
+
+    private fun detectRegistrationTech(lp: LinkProperties): Int {
+        val iface = lp.interfaceName ?: ""
+        if (iface.startsWith("ipsec", ignoreCase = true)) {
+            return REGISTRATION_TECH_IWLAN
+        }
+
+        val caps = if (this::network.isInitialized) {
+            try { connectivityManager.getNetworkCapabilities(network) } catch (_: Throwable) { null }
+        } else {
+            null
+        }
+
+        return if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
+            REGISTRATION_TECH_IWLAN
+        } else {
+            REGISTRATION_TECH_LTE
+        }
     }
 
     private fun resetRegistrationStateForConnect() {
@@ -377,6 +408,9 @@ class SipHandler(val ctxt: Context) {
             imsFailureCallback?.invoke()
             return
         }
+        imsRegistrationTech = detectRegistrationTech(lp)
+        Rlog.d(TAG, "IMS registration tech ${registrationTechName(imsRegistrationTech)} interface=${lp.interfaceName} caps=${connectivityManager.getNetworkCapabilities(network)}")
+        imsRegisteringCallback?.invoke(imsRegistrationTech)
         val pcscfs = getPcscfServers(lp)
         val pcscf = if (pcscfs.isNotEmpty()) {
             pcscfs[0]
