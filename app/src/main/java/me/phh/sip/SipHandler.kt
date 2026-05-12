@@ -1528,21 +1528,28 @@ a=sendrecv
                 Rlog.w(TAG, "rejectCall without valid incoming currentCall: $call")
                 return@thread
             }
+            val rejectedCallId = call.callHeaders["call-id"]?.getOrNull(0).orEmpty()
             val myHeaders = call.callHeaders - "rseq" - "require" - "content-type" - "p-access-network-info" +
                 "Content-Length: 0".toSipHeadersMap()
             val msg =
                 SipResponse(
-                    statusCode = 486,
-                    statusString = "Busy Here",
+                    statusCode = 603,
+                    statusString = "Decline",
                     headersParam = myHeaders,
                     autofill = false
                 )
-            Rlog.d(TAG, "Sending $msg")
-            synchronized(socket.gWriter()) { socket.gWriter().write(msg.toByteArray()) }
+            val responseWriter = call.incomingResponseWriter ?: requestWriters[rejectedCallId] ?: socket.gWriter()
+            Rlog.d(TAG, "Sending $msg via incomingResponseWriter=${call.incomingResponseWriter != null}")
+            synchronized(responseWriter) { responseWriter.write(msg.toByteArray()) }
 
             callStopped.set(true)
+            callStarted.set(false)
+            threadsStarted.set(false)
+            incomingFinalResponseSent.set(false)
+            incomingAcceptedAwaitingAck.set(false)
+            incomingHangupAfterAck.set(false)
             currentCall = null
-            onCancelledCall?.invoke(Object(), "", emptyMap())
+            onCancelledCall?.invoke(Object(), "", mapOf("call-id" to rejectedCallId))
         }
     }
 
