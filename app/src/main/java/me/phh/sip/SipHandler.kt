@@ -1859,7 +1859,25 @@ a=sendrecv
                     remoteContact = extractDestinationFromContact(resp.headers["contact"]!![0]),
                     localCseq = AtomicInteger(nextLocalCseqForDialog),
                 )
-                Rlog.d(TAG, "Outgoing early dialog: remoteTarget=${currentCall?.remoteContact} nextLocalCseq=${currentCall?.localCseq?.get()} route=${currentCall?.callHeaders?.get("route")}")
+                val responseCseq = resp.headers["cseq"]?.getOrNull(0).orEmpty()
+                val outgoingDialogPhase = when {
+                    responseCseq.contains("UPDATE") -> "update"
+                    responseCseq.contains("INVITE") && (resp.statusCode == 200 || resp.statusCode == 202) -> "final-answer"
+                    resp.statusCode in 180..199 -> "early"
+                    else -> "sdp"
+                }
+                Rlog.d(TAG, "Outgoing $outgoingDialogPhase dialog SDP: status=${resp.statusCode} cseq=$responseCseq remoteTarget=${currentCall?.remoteContact} nextLocalCseq=${currentCall?.localCseq?.get()} route=${currentCall?.callHeaders?.get("route")}")
+
+                if (responseCseq.contains("INVITE") && (resp.statusCode == 200 || resp.statusCode == 202)) {
+                    if (threadsStarted.compareAndSet(false, true)) {
+                        Rlog.d(TAG, "Starting outgoing media threads from final INVITE SDP")
+                        callDecodeThread()
+                        callEncodeThread()
+                    } else {
+                        Rlog.d(TAG, "Outgoing media threads already started before final INVITE SDP")
+                    }
+                    return@setResponseCallback false
+                }
 
                 // This isn't the answer to our INVITE, but to our later precondition UPDATE
                 // TODO Actually check cseq
@@ -1882,6 +1900,7 @@ a=sendrecv
                     if (localNone) {
                         // "Allocating our local resource" and update the call
                         if (threadsStarted.compareAndSet(false, true)) {
+                            Rlog.d(TAG, "Starting outgoing media threads from precondition 183 SDP")
                             callDecodeThread()
                             callEncodeThread()
                         }
@@ -1912,6 +1931,7 @@ a=sendrecv
 
                 if(!isPrecondition && resp.statusCode == 183) {
                     if (threadsStarted.compareAndSet(false, true)) {
+                        Rlog.d(TAG, "Starting outgoing media threads from non-precondition 183 SDP")
                         callDecodeThread()
                         callEncodeThread()
                     }
