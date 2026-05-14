@@ -118,6 +118,26 @@ class SipHandler(val ctxt: Context) {
     private val incomingFinalResponseSent = AtomicBoolean(false)
     private val incomingAcceptedAwaitingAck = AtomicBoolean(false)
     private val incomingHangupAfterAck = AtomicBoolean(false)
+    private val recentTerminatedIncomingCalls = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val recentTerminatedIncomingTtlMs = 120_000L
+
+    private fun rememberTerminatedIncomingCall(callId: String, reason: String) {
+        if (callId.isBlank()) return
+        recentTerminatedIncomingCalls[callId] = android.os.SystemClock.elapsedRealtime()
+        Rlog.d(TAG, "Remembering terminated incoming Call-ID for duplicate INVITE guard: callId=$callId reason=$reason")
+    }
+
+    private fun wasRecentlyTerminatedIncomingCall(callId: String): Boolean {
+        if (callId.isBlank()) return false
+        val now = android.os.SystemClock.elapsedRealtime()
+        val then = recentTerminatedIncomingCalls[callId] ?: return false
+        if (now - then > recentTerminatedIncomingTtlMs) {
+            recentTerminatedIncomingCalls.remove(callId)
+            return false
+        }
+        return true
+    }
+
     private val dispatcher = SipDispatcher(TAG)
 
     private val cbLock = ReentrantLock()
@@ -258,6 +278,7 @@ class SipHandler(val ctxt: Context) {
         incomingFinalResponseSent.set(false)
         incomingAcceptedAwaitingAck.set(false)
         incomingHangupAfterAck.set(false)
+        recentTerminatedIncomingCalls.clear()
         currentCall = null
         clearPendingOutgoingInvite(closeRtpSocket = true, reason = "IMS reconnect")
         callGeneration.incrementAndGet()
@@ -1060,7 +1081,8 @@ class SipHandler(val ctxt: Context) {
             if (incomingHangupAfterAck.getAndSet(false)) {
                 Rlog.d(TAG, "ACK received after local pre-ACK hangup; sending deferred BYE")
                 sendByeForCall(call)
-                currentCall = null
+                rememberTerminatedIncomingCall(callId, "deferred local BYE after ACK")
+            currentCall = null
             }
         }
         return 0
@@ -1236,6 +1258,7 @@ a=sendrecv
             Rlog.d(TAG, "Sending 487 for cancelled INVITE $inviteTerminated")
             synchronized(cancelResponseWriter) { cancelResponseWriter.write(inviteTerminated.toByteArray()) }
 
+            rememberTerminatedIncomingCall(callId, "remote CANCEL")
             currentCall = null
             clearPendingOutgoingInvite(callId, closeRtpSocket = false, reason = "remote CANCEL")
             onCancelledCall?.invoke(Object(), "", mapOf("call-id" to callId))
@@ -1244,6 +1267,7 @@ a=sendrecv
             Rlog.w(TAG, "handleCancel called for unexpected method ${request.method}")
         }
 
+        if (currentCall?.outgoing == false) rememberTerminatedIncomingCall(callId, "remote ${request.method}")
         currentCall = null
         clearPendingOutgoingInvite(callId, closeRtpSocket = false, reason = "remote ${request.method}")
         onCancelledCall?.invoke(Object(), "", mapOf("call-id" to callId))
@@ -1585,6 +1609,7 @@ a=sendrecv
                         callStopped.set(true)
                         callStarted.set(false)
                         threadsStarted.set(false)
+                        rememberTerminatedIncomingCall(acceptedCallId, "incoming ACK timeout")
                         currentCall = null
                         onCancelledCall?.invoke(Object(), "", mapOf("call-id" to acceptedCallId))
                     }
@@ -1630,6 +1655,7 @@ a=sendrecv
                 return@thread
             }
             val rejectedCallId = call.callHeaders["call-id"]?.getOrNull(0).orEmpty()
+            rememberTerminatedIncomingCall(rejectedCallId, "local reject")
             val myHeaders = call.callHeaders - "rseq" - "require" - "content-type" - "p-access-network-info" +
                 "Content-Length: 0".toSipHeadersMap()
             val msg =
@@ -1756,11 +1782,13 @@ a=sendrecv
         if (!call.outgoing && incomingFinalResponseSent.get() && !callStarted.get()) {
             Rlog.w(TAG, "Local hangup before incoming ACK; deferring BYE until ACK and keeping 200 OK retransmission active")
             incomingHangupAfterAck.set(true)
+            rememberTerminatedIncomingCall(call.callHeaders["call-id"]?.getOrNull(0).orEmpty(), "local pre-ACK hangup")
             onCancelledCall?.invoke(Object(), "", emptyMap())
             return
         }
 
         sendByeForCall(call)
+        if (!call.outgoing) rememberTerminatedIncomingCall(call.callHeaders["call-id"]?.getOrNull(0).orEmpty(), "local BYE")
         currentCall = null
         incomingAcceptedAwaitingAck.set(false)
         incomingHangupAfterAck.set(false)
@@ -2536,6 +2564,11 @@ a=sendrecv
         val contentType = request.headers["content-type"]?.get(0)
         if (contentType != "application/sdp") return 404
         val incomingCallId = request.headers["call-id"]!![0]
+        if (wasRecentlyTerminatedIncomingCall(incomingCallId)) {
+            val incomingCseq = request.headers["cseq"]?.getOrNull(0).orEmpty()
+            Rlog.w(TAG, "Rejecting duplicate incoming INVITE for recently terminated Call-ID: callId=$incomingCallId cseq=$incomingCseq")
+            return 486
+        }
         val incomingResponseWriter = dispatcher.writerForCallId(incomingCallId) ?: socket.gWriter()
         val existingCall = currentCall
         val isInDialogInvite = existingCall != null &&
