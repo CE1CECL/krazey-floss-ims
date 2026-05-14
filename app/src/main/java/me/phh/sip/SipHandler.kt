@@ -301,6 +301,14 @@ class SipHandler(val ctxt: Context) {
 
     fun getRegistrationTech(): Int = imsRegistrationTech
 
+    private fun markImsReady(reason: String) {
+        if (imsReady) return
+        Rlog.d(TAG, "IMS registration ready: $reason")
+        imsReady = true
+        imsConnectFailureCount.set(0)
+        imsReadyCallback?.invoke()
+    }
+
     private fun registrationTechName(tech: Int): String = when (tech) {
         REGISTRATION_TECH_IWLAN -> "IWLAN"
         REGISTRATION_TECH_LTE -> "LTE"
@@ -938,6 +946,12 @@ class SipHandler(val ctxt: Context) {
             )
 
         subscribe()
+
+        // REGISTER 200 OK is the actual IMS registration success.  Do not
+        // block framework registration state on the optional reg-event
+        // SUBSCRIBE path; some carriers answer it very late with 504.
+        markImsReady("REGISTER 200 OK")
+
         // always keep callback
         return false
     }
@@ -970,21 +984,18 @@ class SipHandler(val ctxt: Context) {
                     P-Access-Network-Info: 3GPP-E-UTRAN-FDD;utran-cell-id-3gpp=20810b8c49752501
                     """.toSipHeadersMap()
             )
-        if (!imsReady) {
-            setResponseCallback(msg.headers["call-id"]!![0], ::subscribeCallback)
-        }
+        setResponseCallback(msg.headers["call-id"]!![0], ::subscribeCallback)
         Rlog.d(TAG, "Sending $msg")
         synchronized(socket.gWriter()) { socket.gWriter().write(msg.toByteArray()) }
     }
 
     fun subscribeCallback(response: SipResponse): Boolean {
-        /*if (response.statusCode != 200) {
-            imsFailureCallback?.invoke()
+        if (response.statusCode !in 200..299) {
+            Rlog.w(TAG, "SUBSCRIBE reg-event failed after REGISTER success: ${response.statusCode} ${response.statusString}")
             return true
-        }*/
-        imsReadyCallback?.invoke()
-        imsReady = true
-        imsConnectFailureCount.set(0)
+        }
+
+        markImsReady("SUBSCRIBE ${response.statusCode}")
         return true
     }
 
