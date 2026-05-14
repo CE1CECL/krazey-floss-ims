@@ -1,102 +1,179 @@
-# phhusson/ims — VoLTE for LineageOS on Samsung devices
+# PhhIms — VoLTE/VoWiFi for LineageOS on Samsung devices
 
-Open-source SIP/IMS stack for LineageOS, based on [phhusson/ims](https://github.com/phhusson/ims).
-Tested on Samsung Galaxy A21s (SM-A217F) running LineageOS 23.2 (Android 16) with O2 Germany.
+Open-source SIP/IMS stack for LineageOS, based on [phhusson/ims](https://github.com/phhusson/ims) and the Samsung-focused fork history from [amikhasenko/ims](https://github.com/amikhasenko/ims).
 
-## How it works
+This fork is used as a userspace `ImsService`/MmTel provider for Samsung Exynos devices where the vendor IMS stack is missing, unusable, or not easily portable to current LineageOS releases.
 
-The Android telephony framework requires a privileged system app that implements
-`android.telephony.ims.ImsService` and is registered as the MmTel provider. This app
-provides a pure-userspace SIP/IMS stack: it opens the IMS bearer, discovers the P-CSCF,
-performs SIP AKA registration, and handles voice calls over RTP.
+The current work mainly targets Samsung Exynos LineageOS 23.x / Android 16 bring-up, with testing around:
 
-## Prerequisites
+- Samsung Galaxy A21s / Exynos850 (`a21s`, original bring-up target)
+- Samsung Galaxy S9 / S9+ / Note9 / Exynos9810 (`starlte`, `star2lte`, `crownlte`)
+- Samsung Galaxy S20 5G / Exynos9830 (`x1s`)
+- O2 Germany as the main known-good carrier test environment
 
-After cloning (whether via `repo sync`, `git clone`, or roomservice), initialize
-the `rnnoise` submodule — `repo sync` does not do this automatically:
+This is not a drop-in universal IMS replacement. It depends on carrier provisioning, Samsung RIL behavior, device overlays, sepolicy, audio HAL behavior, and correct ROM-side integration.
+
+## What this app does
+
+Android expects a privileged app implementing `android.telephony.ims.ImsService` and registering itself as the MmTel provider. This app provides that service with a pure-userspace SIP/IMS stack.
+
+At a high level it:
+
+- requests and tracks the IMS bearer network
+- reads P-CSCF information from `LinkProperties` or falls back to 3GPP DNS discovery
+- performs SIP AKA registration
+- reports IMS registration state back to Android telephony
+- handles VoLTE/VoWiFi voice calls with SIP and RTP
+- handles basic SMS over IMS
+- bridges incoming and outgoing SIP call state into Android `ImsCallSession` callbacks
+
+## Current status
+
+Status is based on the current Samsung LineageOS 23.x test branches. Expect carrier and device differences.
+
+| Area | Status |
+| --- | --- |
+| IMS registration | Working in current tests, including retry/reconnect handling after IMS bearer loss or failed REGISTER attempts. |
+| VoLTE outgoing calls | Working in tested configs, including Android call UI, SIP call setup, and two-way audio when ROM-side audio fixes are present. |
+| VoLTE incoming calls | Recently fixed/tested for accept and reject paths, but still the most sensitive area. Re-test after every dialog/call-state change. |
+| VoWiFi | Experimental. IWLAN/LTE transitions and stale IMS network handling need careful testing. |
+| SMS over IMS | Implemented and basically tested, but not as broadly validated as voice. |
+| Video calling / RCS / UT | Not a goal for now. Voice and basic SMS are the focus. |
+
+A typical failure mode is: the phone shows LTE, but IMS is not registered, Android falls back to circuit-switched calling, and the modem drops to 2G/EDGE for the call. In that case the interesting logs are around IMS network acquisition, P-CSCF discovery, SIP REGISTER, 401 challenge handling, and reconnect retry behavior.
+
+## Important Samsung-specific background
+
+This fork exists because Samsung devices usually do not expose a clean, generic AOSP IMS stack. A working ROM needs cooperation between several layers:
+
+1. Android telephony must bind this package as the MmTel IMS provider.
+2. Carrier config and framework overlays must expose VoLTE/VoWiFi capability.
+3. The RIL must expose a usable IMS APN/network and P-CSCF information, or DNS fallback must work.
+4. Samsung audio HAL routing must allow userspace RTP audio instead of forcing modem/baseband call paths.
+5. IMS registration must survive network loss, IWLAN/LTE transitions, and REGISTER failures.
+6. Incoming SIP dialog state must be bridged correctly into Android call sessions, otherwise the UI may show an incoming call while the remote side keeps ringing.
+
+The code has been iterated around these problem areas:
+
+- delayed SIP handler startup until a valid service state/RPLMN exists
+- correct AKA challenge realm handling for SIP registration
+- reconnect/backoff after IMS bearer loss or failed REGISTER attempts
+- avoiding IMS access switches while a call is active or pending
+- outgoing provisional response handling for ringback/progress
+- separate incoming/outgoing call session state
+- incoming `INVITE` parsing robustness
+- incoming accept path: build dialog state before notifying Android, then send `200 OK` and handle ACK correctly
+- incoming reject path: signal busy/reject to the remote side instead of only closing Android UI state
+- call cleanup after BYE/CANCEL/network failure
+- SMS-over-IMS plumbing via the same SIP handler
+
+## Repository integration
+
+### Local manifest
+
+```xml
+<project path="packages/apps/PhhIms" remote="github" name="krazey/ims" revision="main" />
+```
+
+### `lineage.dependencies`
+
+```json
+{
+  "repository": "krazey/ims",
+  "target_path": "packages/apps/PhhIms",
+  "branch": "main"
+}
+```
+
+After syncing, initialize the `rnnoise` submodule. `repo sync` does not do this automatically:
 
 ```sh
 cd packages/apps/PhhIms
 git submodule update --init app/jni/rnnoise
 ```
 
-## Building in-tree (LineageOS / AOSP)
+## Building in-tree
 
-Add this repo to your local manifest or `lineage.dependencies`:
+Use the Soong/LineageOS build. This is the intended build path.
 
-```xml
-<!-- .repo/local_manifests/roomservice.xml -->
-<project path="packages/apps/PhhIms" remote="github" name="amikhasenko/ims" revision="main" />
+`Android.bp` builds `PhhIms` as a privileged platform-signed app using `platform_apis: true`, so it can access the internal telephony/IMS APIs required by `MmTelFeature`, `ImsConfigImplBase`, `Rlog`, and friends.
+
+No Gradle build or public SDK modification is needed for production ROM builds.
+
+Add the package from your device or common tree:
+
+```makefile
+PRODUCT_PACKAGES += \
+    PhhIms
 ```
 
-```json
-// lineage.dependencies
-{
-    "repository": "amikhasenko/ims",
-    "target_path": "packages/apps/PhhIms",
-    "branch": "main"
-}
-```
+`PhhImsOverlay` is pulled in by the app module's `required` entry.
 
-The `Android.bp` uses `platform_apis: true`, which gives access to all internal
-framework APIs (`Rlog`, `MmTelFeature`, `ImsConfigImplBase`, etc.) without patching
-`android.jar`. No Gradle build or SDK modification is needed.
+## Device tree integration
 
-## Device tree integration (Samsung Exynos example: A21s)
+The exact paths differ per tree, but a Samsung Exynos device usually needs the following pieces.
 
-The following shows the full diff needed in your device tree. Adapt paths and package
-names for your device.
-
-If you have the same device, you can apply [the patch](./device_a21s_common.patch)
-to [`device_a21s_common`](https://github.com/LineageOS/android_device_samsung_a21s-common) repository
-
-### `common.mk` (or `device.mk`)
+### Packages
 
 ```makefile
 # IMS over Wi-Fi data service and network qualification service.
-# Required by the telephony framework even for VoLTE-only (no VoWiFi):
-# without these, DataServiceManager and NetworkRegistrationManager fail
-# to bind their WLAN handlers, which can cascade to IMS setup failures.
+# These are also useful for VoLTE-only bring-up because the telephony
+# framework still expects the WLAN data/network service hooks to exist.
 PRODUCT_PACKAGES += \
     Iwlan \
-    QualifiedNetworksService
+    QualifiedNetworksService \
+    PhhIms
+```
 
-# Tell the framework VoLTE is available even if the carrier config says otherwise.
-# Required because carrier config defaults to volte_available=false for unknown carriers.
+### Debug availability overrides
+
+For bring-up, these properties are useful when carrier config defaults would otherwise hide IMS capability:
+
+```makefile
 PRODUCT_PROPERTY_OVERRIDES += \
     persist.dbg.volte_avail_ovr=1 \
     persist.dbg.wfc_avail_ovr=1 \
     persist.dbg.allow_ims_off=1
+```
 
-PRODUCT_PACKAGES += \
-    PhhIms
+Do not treat these as a replacement for correct carrier config. They are bring-up helpers.
 
+### Framework overlay
+
+Example: `overlay/frameworks/base/core/res/res/values/config.xml`
+
+```xml
+<resources>
+    <bool name="config_carrier_volte_available">true</bool>
+    <bool name="config_device_volte_available">true</bool>
+    <bool name="config_device_vt_available">true</bool>
+
+    <string name="config_wlan_data_service_package">com.google.android.iwlan</string>
+    <string name="config_wlan_network_service_package">com.google.android.iwlan</string>
+    <string name="config_qualified_networks_service_package">com.android.telephony.qns</string>
+</resources>
+```
+
+### Telephony overlay
+
+Example: `overlay/packages/services/Telephony/res/values/config.xml`
+
+```xml
+<resources>
+    <string name="config_ims_mmtel_package" translatable="false">me.phh.ims</string>
+</resources>
+```
+
+### Privapp permissions
+
+Example target path:
+
+```makefile
 PRODUCT_COPY_FILES += \
     $(COMMON_PATH)/privapp-permissions-me.phh.ims.xml:$(TARGET_COPY_OUT_SYSTEM)/etc/permissions/privapp-permissions-me.phh.ims.xml
 ```
 
-### `overlay/frameworks/base/core/res/res/values/config.xml`
-
-```xml
-<!-- Tell the platform VoLTE and VT are available on this device -->
-<bool name="config_carrier_volte_available">true</bool>
-<bool name="config_device_volte_available">true</bool>
-<bool name="config_device_vt_available">true</bool>
-
-<!-- IMS bearer management services -->
-<string name="config_wlan_data_service_package">com.google.android.iwlan</string>
-<string name="config_wlan_network_service_package">com.google.android.iwlan</string>
-<string name="config_qualified_networks_service_package">com.android.telephony.qns</string>
-```
-
-### `overlay/packages/services/Telephony/res/values/config.xml`
-
-```xml
-<!-- Register me.phh.ims as the IMS MmTel provider -->
-<string name="config_ims_mmtel_package" translatable="false">me.phh.ims</string>
-```
-
-### `privapp-permissions-me.phh.ims.xml`
+Example file:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -108,137 +185,197 @@ PRODUCT_COPY_FILES += \
 </permissions>
 ```
 
-### `sepolicy/vendor/property.te`
+### Carrier config overlay
 
-```
+A real device tree should also carry a carrier config overlay for the tested carrier/device combination. The debug properties above may make the UI expose toggles, but stable behavior should come from proper CarrierConfig values.
+
+Useful areas to check:
+
+- `carrier_volte_available_bool`
+- `editable_enhanced_4g_lte_bool`
+- `carrier_wfc_ims_available_bool`
+- `editable_wfc_mode_bool`
+- IMS SMS availability
+- default WFC mode and roaming behavior
+
+### Vendor IMS properties / sepolicy
+
+Some Samsung RIL components set or read `vendor.ril.ims.*` properties. If your device tree needs this, add a vendor property type and allow the Samsung radio service to set it.
+
+Example:
+
+```te
+# sepolicy/vendor/property.te
 vendor_internal_prop(vendor_ims_prop)
 ```
 
-### `sepolicy/vendor/property_contexts`
-
-```
-# IMS
+```text
+# sepolicy/vendor/property_contexts
 vendor.ril.ims.                u:object_r:vendor_ims_prop:s0
 ```
 
-### `sepolicy/vendor/sehradiomanager.te`
-
-```
+```te
+# sepolicy/vendor/sehradiomanager.te
 allow sehradiomanager vendor_ims_prop:property_service set;
 ```
 
-## Required binary patches
+## Samsung audio notes
 
-The Samsung audio HAL (`libaudioproxy.so`) contains a range-gate in
-`proxy_open_capture_stream` that skips arming the ALSA mic mixer path unless an
-internal `proxy_mode` value is in `[17..23]`. For software IMS calls the value is
-always outside that range, so the microphone ADC stays silent.
+Audio is not solved only inside this app. Samsung HALs often special-case cellular calls and may route capture/playback through modem/baseband paths instead of normal userspace audio paths.
 
-The fix is a 2-byte NOP patch at file offset `0x9a46` (vaddr `0xaa46`) that makes
-the mixer arming unconditional. Full reverse-engineering notes and the proxy_mode
-map are in [RE/README.md](RE/README.md).
+### Exynos850 / A21s
 
-### Step 1 — Pull the binary from the device
+The original A21s bring-up required a binary patch for `libaudioproxy.so`. The HAL only armed the microphone mixer path when an internal Samsung `proxy_mode` was in a specific range. Software IMS calls missed that range, so `AudioRecord` opened but returned silence.
 
-```sh
-cd RE/
-bash scripts/pull_binaries.sh   # requires: adb root
-```
+The documented fix is a 2-byte NOP patch in `proxy_open_capture_stream`, described in [`RE/README.md`](RE/README.md).
 
-This places `libaudioproxy.so` in `RE/binaries/`.
+### Exynos9810 / S9 family
 
-### Step 2 — Verify and apply the patch
+The Exynos9810 LineageOS 23.x bring-up uses a ROM-side audio HAL change guarded by an `EXYNOS9810_CALLVOL_FIX` Soong flag. That fix maps Android voice-call volume to the Samsung mixer control `Rcv Digital Gain`, so the in-call earpiece volume follows the Android call volume slider.
 
-```sh
-# Dry-run: confirms the expected bytes are present
-python3 RE/scripts/patch_libaudioproxy.py
+This is not part of this app directly, but without the matching ROM-side audio fixes, the SIP/IMS stack may register and place calls while audio behavior still looks broken.
 
-# Apply: writes RE/binaries/libaudioproxy_patched.so (original backed up as .so.orig)
-python3 RE/scripts/patch_libaudioproxy.py --apply
-```
+### Telecom audio mode
 
-### Step 3 — Push to device
+Some Samsung HALs treat `MODE_IN_CALL` as a modem-call path. For a userspace IMS stack, `MODE_IN_COMMUNICATION` may be required so `AudioRecord` stays on the real microphone ADC path instead of a baseband uplink PCM.
 
-Requires an unlocked bootloader and a userdebug build (so `adb root` and `adb remount` work):
+If calls connect but the microphone is silent, check the HAL routing first before assuming SIP/RTP is broken.
+
+## Useful debug commands
 
 ```sh
-adb root
-adb remount
-adb push RE/binaries/libaudioproxy_patched.so /vendor/lib/libaudioproxy.so
-adb shell restorecon /vendor/lib/libaudioproxy.so
-adb reboot
+adb shell dumpsys ims
+adb shell dumpsys telephony.registry
+adb shell dumpsys carrier_config
+adb shell dumpsys connectivity
+adb shell dumpsys package me.phh.ims
 ```
 
-## Required framework patches
+For logs:
 
-### `packages/services/Telecomm` — use `MODE_IN_COMMUNICATION` instead of `MODE_IN_CALL`
-
-The Samsung audio HAL treats `MODE_IN_CALL` specially: it reconfigures any active primary
-capture stream to the baseband uplink PCM path (`/dev/snd/pcmC0D110c`), which taps the
-hardware circuit-switched voice path and produces silence for software IMS stacks that do
-their own RTP encoding.  Switching to `MODE_IN_COMMUNICATION` keeps the microphone on the
-real ADC path.
-
-```diff
---- a/src/com/android/server/telecom/CallAudioModeStateMachine.java
-+++ b/src/com/android/server/telecom/CallAudioModeStateMachine.java
-@@ -523,10 +523,17 @@ public class CallAudioModeStateMachine extends StateMachine {
-             Log.i(this, "enter: AudioManager#requestAudioFocus(CALL)");
-             mAudioManager.requestAudioFocusForCall(AudioManager.STREAM_VOICE_CALL,
-                 AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
--            Log.i(this, "enter: AudioManager#setMode(MODE_IN_CALL)");
--            mAudioManager.setMode(AudioManager.MODE_IN_CALL);
--            mLocalLog.log("Mode MODE_IN_CALL");
--            mMostRecentMode = AudioManager.MODE_IN_CALL;
-+            // Use MODE_IN_COMMUNICATION instead of MODE_IN_CALL so that the Samsung audio HAL
-+            // does not route AudioRecord capture to the baseband uplink PCM path.  When in
-+            // MODE_IN_CALL the HAL reconfigures any primary capture stream to callrecord_uplink
-+            // (/dev/snd/pcmC0D110c), which taps the hardware CP voice path and produces silence
-+            // for software IMS stacks that do their own RTP encoding.  MODE_IN_COMMUNICATION
-+            // keeps the capture on the real microphone ADC path.
-+            Log.i(this, "enter: AudioManager#setMode(MODE_IN_COMMUNICATION)");
-+            mAudioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-+            mLocalLog.log("Mode MODE_IN_COMMUNICATION");
-+            mMostRecentMode = AudioManager.MODE_IN_COMMUNICATION;
-             mCallAudioManager.setCallAudioRouteFocusState(CallAudioRouteController.ACTIVE_FOCUS);
-         }
+```sh
+adb logcat -b all -v threadtime | grep -iE \
+  'PHH|PhhIms|SipHandler|MmTel|Ims|Iwlan|Qns|P-CSCF|REGISTER|401|INVITE|PRACK|ACK|BYE|CANCEL|RTP|SMS'
 ```
 
-## Current status
+Useful UI check:
 
-**Registation**: somtimes works
+```text
+*#*#4636#*#*
+```
 
-**Incomming SMS**: work
+Check whether Android says IMS is registered and whether voice/SMS over IMS are available.
 
-**Outgoing SMS**: not tested
+## Debugging common failure modes
 
-**Incomming Calls**: droped after user accepts the call
+### LTE call drops to 2G / EDGE
 
-**Outgoing Calls**: work *with incomming and outgoing audio and UI showing the call*, if you apply patches above
+Usually means Android did not have an active IMS registration when the call started, so it used circuit-switched fallback.
+
+Check:
+
+- did `getVolteNetwork()` receive a valid IMS network?
+- did `LinkProperties` contain P-CSCF addresses?
+- did DNS fallback produce a P-CSCF?
+- did the initial SIP REGISTER receive the expected `401 Unauthorized` challenge?
+- did the second REGISTER use the correct realm from `WWW-Authenticate`?
+- did reconnect retry trigger after failures?
+
+### IMS registration freezes after VoWiFi/VoLTE switching
+
+Usually means the app or framework still believes an old IMS access/network is valid.
+
+Check:
+
+- IWLAN/LTE registration tech reported to `ImsRegistrationImplBase`
+- whether a call is active or pending while access changes
+- stale `NetworkCallback` state
+- reconnect/re-request of the IMS bearer after access becomes unsuitable
+
+### Incoming call UI appears, but remote keeps ringing
+
+Usually means Android was notified before SIP dialog state was fully usable, or accept handling did not send/complete the expected SIP response path.
+
+Check:
+
+- `INVITE` parsing
+- `Call-ID`, tags, CSeq, Contact, Record-Route/Route handling
+- whether `currentCall` exists before `notifyIncomingCall()`
+- whether accept sends `200 OK`
+- whether ACK is received and matched
+- PRACK/100rel handling; do not wait for a PRACK that was never negotiated
+
+### Reject/decline does not reach the caller
+
+Check that reject sends a SIP reject response such as busy/reject while the call is still an incoming dialog. Closing only the Android call session is not enough; the remote network must receive a SIP response.
+
+### Caller shown as unknown in call history
+
+The incoming call profile must carry usable caller identity extras from the SIP `From`/P-Asserted-Identity information:
+
+- `ImsCallProfile.EXTRA_OI`
+- `ImsCallProfile.EXTRA_CNA`
+- `ImsCallProfile.EXTRA_DISPLAY_TEXT`
+- presentation flags such as `EXTRA_OIR` / `EXTRA_CNAP`
+
+### Outgoing call has no ringback/progress
+
+Check provisional SIP responses:
+
+- `180 Ringing`
+- `183 Session Progress`
+
+Android should be notified with call-session progress before final answer, otherwise the remote side may ring while the local UI/audio state feels wrong.
+
+### Audio is one-way or silent
+
+Separate SIP success from audio routing. If SIP says the call is established but audio is broken, check:
+
+- Android audio mode used by Telecom
+- Samsung HAL route/mixer state
+- receiver/earpiece gain mixer controls
+- RTP socket lifecycle
+- AMR/AMR-WB codec negotiation
+- whether cleanup from a previous call left stale media threads or sockets
+
+## P-CSCF fallback
+
+If the RIL does not report P-CSCF addresses via `LinkProperties`, the app attempts standard 3GPP DNS discovery:
+
+```text
+ims.mnc<MNC>.mcc<MCC>.3gppnetwork.org
+```
+
+A last-resort manual override is available:
+
+```sh
+adb shell setprop persist.ims.pcscf_fallback <ip-address>
+```
+
+## Enabling VoLTE toggle state
+
+On some builds it helps to force the enhanced 4G setting once:
+
+```sh
+adb shell settings put global enhanced_4g_mode_enabled 1
+```
+
+On fresh installs this usually defaults to enabled when overlays/carrier config expose VoLTE correctly.
 
 ## Building with Gradle
 
-The public `android.jar` (API 33) stubs do not expose the internal IMS APIs. To build
-with Gradle you need a full `android.jar` built from AOSP sources in `app/libs/android.jar`,
-and the SDK jar must have `MmTelFeature` removed to avoid duplicate class conflicts:
+The public SDK stubs do not expose all internal IMS APIs used here. For development-only Gradle builds, you need a full `android.jar` from an AOSP/LineageOS build in `app/libs/android.jar`, and you may need to remove duplicate public IMS stubs from the platform SDK jar.
 
-```sh
-zip -d ./platforms/android-33/android.jar \
-    android/telephony/ims/feature/MmTelFeature.class \
-    'android/telephony/ims/feature/MmTelFeature$MmTelCapabilities.class'
-```
-
-For production builds use the in-tree Soong build instead.
+For ROM integration, use the in-tree Soong build instead.
 
 ## Notes
 
 - The app has no launcher icon and does not appear in the app drawer.
-- On carriers where the RIL does not report P-CSCF addresses via `LinkProperties`,
-  DNS discovery is attempted using the standard 3GPP domain (TS 23.003 §13.2):
-  `ims.mnc<MNC>.mcc<MCC>.3gppnetwork.org`. A last-resort override is available via
-  `adb shell setprop persist.ims.pcscf_fallback <ip>`.
-- VoLTE must be enabled via ADB once after installing:
-  ```
-  adb shell settings put global enhanced_4g_mode_enabled 1
-  ```
-  On a fresh install this defaults to on.
+- The app must be privileged and platform-signed.
+- Carrier provisioning still matters. A carrier that does not provision IMS for the SIM/device combination may never register.
+- Keep VoLTE, VoWiFi, SMS, and audio changes in separate commits while rebasing; it makes regressions much easier to isolate.
+- For Samsung bring-up, always test: registration, outgoing call, incoming accept, incoming reject, SMS, VoWiFi-only, VoLTE-only, and VoWiFi→VoLTE transitions.
+
+## License
+
+GPL-2.0, following the upstream project.
