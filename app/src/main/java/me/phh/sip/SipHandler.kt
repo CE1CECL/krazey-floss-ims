@@ -84,15 +84,7 @@ class SipHandler(val ctxt: Context) {
     fun generateCallId(): SipHeadersMap {
         val callId = randomBytes(12).toHex()
         return mapOf("call-id" to listOf(callId))
-    }
-    private fun SipHeadersMap.callIdOrNull(): String? = this["call-id"]?.getOrNull(0)
-    private fun SipHeadersMap.callIdOrEmpty(): String = callIdOrNull().orEmpty()
-    private fun Call.callIdOrNull(): String? = callHeaders.callIdOrNull()
-    private fun Call.callIdOrEmpty(): String = callHeaders.callIdOrEmpty()
-    private fun SipRequest.callIdOrEmpty(): String = headers.callIdOrEmpty()
-    private fun SipResponse.callIdOrEmpty(): String = headers.callIdOrEmpty()
-
-    private var registerCounter = 1
+    } private var registerCounter = 1
     private var registerHeaders =
         """
         From: <sip:$user>
