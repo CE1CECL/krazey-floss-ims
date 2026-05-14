@@ -1188,7 +1188,7 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
     fun handleAck(request: SipRequest): Int {
         val callId = request.callIdOrEmpty()
         val call = currentCall
-        val currentCallId = call?.callHeaders?.get("call-id")?.getOrNull(0)
+        val currentCallId = call?.callIdOrNull()
         Rlog.d(TAG, "Received ACK for call-id=$callId current=$currentCallId outgoing=${call?.outgoing}")
         if (call != null && !call.outgoing && currentCallId == callId) {
             callStarted.set(true)
@@ -1228,7 +1228,7 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         val requestCallId = request.callIdOrEmpty()
         val requestCseq = request.headers["cseq"]?.getOrNull(0).orEmpty()
         val call = currentCall
-        val currentCallId = call?.callHeaders?.get("call-id")?.getOrNull(0)
+        val currentCallId = call?.callIdOrNull()
         if (call == null || currentCallId != requestCallId) {
             Rlog.w(TAG, "Rejecting UPDATE for non-current dialog: callId=$requestCallId cseq=$requestCseq current=$currentCallId")
             return 481
@@ -1279,7 +1279,7 @@ a=sendrecv
                 body = mySdp
             )
         Rlog.d(TAG, "Replying back with $reply")
-        val updateCallId = request.headers["call-id"]?.getOrNull(0)
+        val updateCallId = request.headers.callIdOrNull()
         val updateResponseWriter = updateCallId?.let { dispatcher.writerForCallId(it) } ?: socket.gWriter()
         synchronized(updateResponseWriter) { updateResponseWriter.write(reply.toByteArray()) }
 
