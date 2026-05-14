@@ -43,6 +43,16 @@ class PhhMmTelFeature(val slotId: Int) : PhhMmTelFeatureProtected(slotId) {
     private var outgoingCallActive = false
     fun getSipHandlerOrNull(): SipHandler? = if (this::sipHandler.isInitialized) sipHandler else null
 
+    private fun refreshMmTelCapabilities(reason: String) {
+        val capabilities = MmTelCapabilities()
+        capabilities.addCapabilities(
+            MmTelCapabilities.CAPABILITY_TYPE_VOICE or
+                MmTelCapabilities.CAPABILITY_TYPE_SMS
+        )
+        Rlog.d(TAG, "Refreshing MmTel capabilities after $reason: $capabilities")
+        notifyCapabilitiesStatusChanged(capabilities)
+    }
+
     override fun initialize(context: Context?, slotId: Int) {
         super.initialize(context, slotId)
         featureState = STATE_INITIALIZING
@@ -198,6 +208,7 @@ class PhhMmTelFeature(val slotId: Int) : PhhMmTelFeatureProtected(slotId) {
             val tech = sipHandler.getRegistrationTech()
             Rlog.d(TAG, "IMS SIP registered, reporting registration tech $tech")
             imsService.getRegistration(slotId).onRegistered(tech)
+            refreshMmTelCapabilities("SIP registered")
         }
         imsSms.sipHandler = sipHandler
         sipHandler.onSmsReceived = imsSms::onSmsReceived

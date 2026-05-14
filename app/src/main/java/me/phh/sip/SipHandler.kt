@@ -185,9 +185,19 @@ class SipHandler(val ctxt: Context) {
     // This is especially important for incoming INVITE over the TCP server socket: writing the
     // 180/200 to the registration/control socket can make the P-CSCF ignore the final response.
     private val requestWriters = java.util.concurrent.ConcurrentHashMap<String, OutputStream>()
+    private data class PendingReconnectRequest(
+        val reason: String,
+        val newNetwork: Network?,
+        val delayMs: Long,
+        val generation: Int,
+    )
+
     private val reconnecting = AtomicBoolean(false)
     private val reconnectRetryScheduled = AtomicBoolean(false)
     private val imsConnectFailureCount = AtomicInteger(0)
+    private val reconnectGeneration = AtomicInteger(0)
+    private val pendingReconnectLock = Object()
+    private var pendingReconnectRequest: PendingReconnectRequest? = null
     private var imsReady = false
     var imsReadyCallback: (() -> Unit)? = null
     var imsFailureCallback: (() -> Unit)? = null
@@ -405,6 +415,8 @@ class SipHandler(val ctxt: Context) {
             return
         }
 
+        val retryGeneration = reconnectGeneration.get()
+
         if (!reconnectRetryScheduled.compareAndSet(false, true)) {
             Rlog.w(TAG, "IMS reconnect retry already scheduled, ignore: $reason")
             return
@@ -418,6 +430,18 @@ class SipHandler(val ctxt: Context) {
                 // Clear before reconnectIms(), so a failed retry may schedule the next
                 // backoff attempt.
                 reconnectRetryScheduled.set(false)
+
+                val currentNetwork = if (this@SipHandler::network.isInitialized) network else null
+                if (retryGeneration != reconnectGeneration.get() || currentNetwork != retryNetwork) {
+                    Rlog.w(
+                        TAG,
+                        "Skipping stale IMS reconnect retry: $reason " +
+                            "retryGeneration=$retryGeneration currentGeneration=${reconnectGeneration.get()} " +
+                            "retryNetwork=$retryNetwork currentNetwork=$currentNetwork"
+                    )
+                    return@thread
+                }
+
                 reconnectIms("retry after failed SIP connect: $reason", retryNetwork, delayMs = 0L)
             } catch (t: Throwable) {
                 Rlog.e(TAG, "IMS reconnect retry failed to start: $reason", t)
@@ -426,6 +450,7 @@ class SipHandler(val ctxt: Context) {
             }
         }
     }
+
 
     private fun failConnectAndRetry(reason: String, baseDelayMs: Long = 5000L) {
         val failures = imsConnectFailureCount.incrementAndGet().coerceAtMost(6)
@@ -436,31 +461,93 @@ class SipHandler(val ctxt: Context) {
         scheduleReconnectRetry(reason, delayMs)
     }
 
-    private fun reconnectIms(reason: String, newNetwork: Network? = null, delayMs: Long = 1000L) {
+    private fun takePendingReconnectRequest(): PendingReconnectRequest? {
+        return synchronized(pendingReconnectLock) {
+            val request = pendingReconnectRequest
+            pendingReconnectRequest = null
+            request
+        }
+    }
+
+    private fun hasPendingReconnectRequest(): Boolean {
+        return synchronized(pendingReconnectLock) {
+            pendingReconnectRequest != null
+        }
+    }
+
+    private fun startReconnectWorkerIfNeeded() {
         if (!reconnecting.compareAndSet(false, true)) {
-            Rlog.w(TAG, "IMS reconnect already running, ignore: $reason")
             return
         }
+
         thread {
             try {
-                Rlog.w(TAG, "Reconnecting IMS: $reason")
-                dropImsConnection(reason)
-                if (newNetwork != null) network = newNetwork
-                Thread.sleep(delayMs)
-                if (!this@SipHandler::network.isInitialized) {
-                    Rlog.w(TAG, "Cannot reconnect IMS without a Network")
-                    imsFailureCallback?.invoke()
-                    return@thread
+                while (true) {
+                    val request = takePendingReconnectRequest() ?: break
+
+                    try {
+                        Rlog.w(TAG, "Reconnecting IMS: ${request.reason}")
+                        dropImsConnection(request.reason)
+
+                        if (request.newNetwork != null) {
+                            network = request.newNetwork
+                        }
+
+                        Thread.sleep(request.delayMs)
+
+                        if (request.generation != reconnectGeneration.get()) {
+                            Rlog.w(
+                                TAG,
+                                "Skipping stale IMS reconnect: ${request.reason} " +
+                                    "requestGeneration=${request.generation} " +
+                                    "currentGeneration=${reconnectGeneration.get()}"
+                            )
+                            continue
+                        }
+
+                        if (!this@SipHandler::network.isInitialized) {
+                            Rlog.w(TAG, "Cannot reconnect IMS without a Network")
+                            imsFailureCallback?.invoke()
+                            continue
+                        }
+
+                        connect()
+                    } catch (t: Throwable) {
+                        Rlog.e(TAG, "IMS reconnect failed: ${request.reason}", t)
+                        failConnectAndRetry("IMS reconnect failed: ${request.reason}")
+                    }
                 }
-                connect()
-            } catch (t: Throwable) {
-                Rlog.e(TAG, "IMS reconnect failed: $reason", t)
-                failConnectAndRetry("IMS reconnect failed: $reason")
             } finally {
                 reconnecting.set(false)
+
+                // Close the small race where a reconnect request is queued after the
+                // worker drained the queue but before reconnecting was cleared.
+                if (hasPendingReconnectRequest()) {
+                    startReconnectWorkerIfNeeded()
+                }
             }
         }
     }
+
+    private fun reconnectIms(reason: String, newNetwork: Network? = null, delayMs: Long = 1000L) {
+        val request = PendingReconnectRequest(
+            reason = reason,
+            newNetwork = newNetwork,
+            delayMs = delayMs,
+            generation = reconnectGeneration.incrementAndGet(),
+        )
+
+        synchronized(pendingReconnectLock) {
+            pendingReconnectRequest = request
+        }
+
+        if (reconnecting.get()) {
+            Rlog.w(TAG, "IMS reconnect already running, queued: $reason")
+        }
+
+        startReconnectWorkerIfNeeded()
+    }
+
 
     var abandonnedBecauseOfNoPcscf = false
     @Synchronized
@@ -744,6 +831,8 @@ class SipHandler(val ctxt: Context) {
                     Rlog.d(TAG, "IMS network lost $lostNetwork")
                     if (this@SipHandler::network.isInitialized && network == lostNetwork) {
                         Rlog.w(TAG, "Current IMS network was lost; dropping SIP state")
+                        Rlog.w(TAG, "Invalidating IMS reconnect generation: current IMS network lost")
+                        reconnectGeneration.incrementAndGet()
                         dropImsConnection("IMS network lost")
                         abandonnedBecauseOfNoPcscf = true
                         imsFailureCallback?.invoke()
