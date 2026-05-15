@@ -1,6 +1,4 @@
 //SPDX-License-Identifier: GPL-2.0
-@file:Suppress("OVERRIDE_DEPRECATION")
-
 package me.phh.ims
 
 import android.app.AlarmManager
@@ -51,7 +49,7 @@ class PhhImsService : ImsService() {
 
     // XXX one per slot id...
     var mmTelFeature: PhhMmTelFeature? = null
-    override fun createMmTelFeature(slotId: Int): MmTelFeature {
+    override fun createMmTelFeatureForSubscription(slotId: Int, subscriptionId: Int): MmTelFeature {
         Rlog.d(TAG, "createMmTelFeature")
         var feature = mmTelFeature
         if (feature == null) {
@@ -60,14 +58,14 @@ class PhhImsService : ImsService() {
         }
         return feature
     }
-    override fun createRcsFeature(slotId: Int): RcsFeature? {
+    override fun createRcsFeatureForSubscription(slotId: Int, subscriptionId: Int): RcsFeature? {
         Rlog.d(TAG, "createRcsFeature")
         return null
     }
 
     val config = PhhImsConfig()
 
-    override fun getConfig(slotId: Int): ImsConfigImplBase {
+    override fun getConfigForSubscription(slotId: Int, subscriptionId: Int): ImsConfigImplBase {
         Rlog.d(TAG, "getConfig")
         return config
     }
@@ -81,7 +79,7 @@ class PhhImsService : ImsService() {
 
     // XXX cache one per slot id
     val imsRegistration = ImsRegistrationImplBase()
-    override fun getRegistration(slotId: Int): ImsRegistrationImplBase {
+    override fun getRegistrationForSubscription(slotId: Int, subscriptionId: Int): ImsRegistrationImplBase {
         Rlog.d(TAG, "getRegistration $slotId")
         return imsRegistration
     }
