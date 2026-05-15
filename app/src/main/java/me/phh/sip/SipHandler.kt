@@ -50,10 +50,26 @@ class SipHandler(val ctxt: Context) {
         ipSecManager = ctxt.getSystemService(IpSecManager::class.java)
     }
 
-    @SuppressLint("MissingPermission")
-    private val activeSubscription = subscriptionManager.activeSubscriptionInfoList!![0]
-    @Suppress("DEPRECATION")
-    private val imei = telephonyManager.getDeviceId(activeSubscription.simSlotIndex)
+    private fun getFirstActiveSubscription() =
+        subscriptionManager.activeSubscriptionInfoList!![0]
+
+    private fun getDeviceIdForSlot(slotIndex: Int) =
+        telephonyManager.getImei(slotIndex)
+
+    private fun getAllCellInfoForRegistrationLog() =
+        telephonyManager.getAllCellInfo()
+
+    private fun createVoiceCommunicationAudioRecord(bufferSize: Int): AudioRecord =
+        AudioRecord(
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            8000,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+            bufferSize,
+        )
+
+    private val activeSubscription = getFirstActiveSubscription()
+    private val imei = getDeviceIdForSlot(activeSubscription.simSlotIndex)
     private val subId = activeSubscription.subscriptionId
 
     private val simInfoUri = Uri.parse("content://telephony/siminfo")
@@ -1034,12 +1050,8 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         registerHeaders += newHeaders
         commonHeaders += newHeaders
     }
-
-    @SuppressLint("MissingPermission")
     fun register(_writer: OutputStream? = null) {
-        val tm = ctxt.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-
-        val cellInfoList = tm.getAllCellInfo()
+        val cellInfoList = getAllCellInfoForRegistrationLog()
         for(cell in cellInfoList) {
             if(cell is CellInfoLte) {
                 val cellIdentity = cell.cellIdentity
@@ -1511,9 +1523,6 @@ a=sendrecv
     //   [frame header: 0 | FT(4) | Q | 00] + speech bits octet padded.
     // The RTP payloads used here are RFC 4867 bandwidth-efficient packets:
     //   CMR(4), F(1), FT(4), Q(1), speech bits...
-
-
-    @SuppressLint("MissingPermission")
     fun callEncodeThread(
         incomingMicStartDelayMs: Long = 0L,
         reason: String = "default",
@@ -1635,7 +1644,7 @@ a=sendrecv
             // DANGER: Don't open the mic before the user acknowledged opening the call!
 
             val minBufferSize = AudioRecord.getMinBufferSize(8000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-            val audioRecord = AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, 8000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, minBufferSize)
+            val audioRecord = createVoiceCommunicationAudioRecord(minBufferSize)
             Rlog.d(TAG, "AudioRecord created with minBufferSize=$minBufferSize, state=${audioRecord.state}")
 
             // Pin capture to the built-in mic so the Samsung HAL cannot reroute it to
