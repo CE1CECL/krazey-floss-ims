@@ -1,0 +1,110 @@
+// SPDX-License-Identifier: GPL-2.0
+package me.phh.sip
+
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.telephony.Rlog
+import android.telephony.TelephonyManager
+import android.telephony.ims.stub.ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN
+import android.telephony.ims.stub.ImsRegistrationImplBase.REGISTRATION_TECH_LTE
+import java.net.Inet6Address
+import java.net.InetAddress
+
+internal object ImsNetworkState {
+    fun registrationTechName(tech: Int): String =
+        when (tech) {
+            REGISTRATION_TECH_IWLAN -> "IWLAN"
+            REGISTRATION_TECH_LTE -> "LTE"
+            else -> "unknown($tech)"
+        }
+
+    fun detectRegistrationTech(
+        connectivityManager: ConnectivityManager,
+        network: Network?,
+        lp: LinkProperties,
+    ): Int {
+        val iface = lp.interfaceName ?: ""
+        if (iface.startsWith("ipsec", ignoreCase = true)) {
+            return REGISTRATION_TECH_IWLAN
+        }
+
+        val caps = if (network != null) {
+            try {
+                connectivityManager.getNetworkCapabilities(network)
+            } catch (_: Throwable) {
+                null
+            }
+        } else {
+            null
+        }
+
+        return if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
+            REGISTRATION_TECH_IWLAN
+        } else {
+            REGISTRATION_TECH_LTE
+        }
+    }
+
+    fun getPcscfServers(lp: LinkProperties): List<InetAddress> {
+        return (lp.javaClass.getMethod("getPcscfServers").invoke(lp) as List<*>)
+            .filterIsInstance<InetAddress>()
+            .sortedBy { if (it is Inet6Address) 0 else 1 }
+    }
+
+    fun getImsLocalAddress(lp: LinkProperties): InetAddress? {
+        return lp.linkAddresses
+            .map { it.address }
+            .filter { !it.isAnyLocalAddress && !it.isLoopbackAddress }
+            .sortedBy { if (it is Inet6Address) 0 else 1 }
+            .firstOrNull()
+    }
+
+    fun ratName(rat: Int): String =
+        when (rat) {
+            TelephonyManager.NETWORK_TYPE_LTE -> "LTE"
+            TelephonyManager.NETWORK_TYPE_NR -> "NR"
+            TelephonyManager.NETWORK_TYPE_IWLAN -> "IWLAN"
+            TelephonyManager.NETWORK_TYPE_EDGE -> "EDGE"
+            TelephonyManager.NETWORK_TYPE_GPRS -> "GPRS"
+            TelephonyManager.NETWORK_TYPE_GSM -> "GSM"
+            TelephonyManager.NETWORK_TYPE_UMTS -> "UMTS"
+            TelephonyManager.NETWORK_TYPE_HSPA -> "HSPA"
+            TelephonyManager.NETWORK_TYPE_HSDPA -> "HSDPA"
+            TelephonyManager.NETWORK_TYPE_HSUPA -> "HSUPA"
+            TelephonyManager.NETWORK_TYPE_UNKNOWN -> "UNKNOWN"
+            else -> "rat($rat)"
+        }
+
+    fun isRatReadyForImsNetworkRequest(
+        tag: String,
+        telephonyManager: TelephonyManager,
+    ): Boolean {
+        val dataRat = try {
+            telephonyManager.dataNetworkType
+        } catch (t: Throwable) {
+            TelephonyManager.NETWORK_TYPE_UNKNOWN
+        }
+
+        val voiceRat = try {
+            telephonyManager.voiceNetworkType
+        } catch (t: Throwable) {
+            TelephonyManager.NETWORK_TYPE_UNKNOWN
+        }
+
+        val ready =
+            dataRat == TelephonyManager.NETWORK_TYPE_LTE ||
+                dataRat == TelephonyManager.NETWORK_TYPE_NR ||
+                dataRat == TelephonyManager.NETWORK_TYPE_IWLAN ||
+                voiceRat == TelephonyManager.NETWORK_TYPE_LTE ||
+                voiceRat == TelephonyManager.NETWORK_TYPE_NR
+
+        Rlog.d(
+            tag,
+            "IMS network request RAT gate: data=${ratName(dataRat)} voice=${ratName(voiceRat)} ready=$ready",
+        )
+
+        return ready
+    }
+}

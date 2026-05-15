@@ -243,29 +243,12 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
         imsReadyCallback?.invoke()
     }
 
-    private fun registrationTechName(tech: Int): String = when (tech) {
-        REGISTRATION_TECH_IWLAN -> "IWLAN"
-        REGISTRATION_TECH_LTE -> "LTE"
-        else -> "unknown($tech)"
-    }
+    private fun registrationTechName(tech: Int): String =
+        ImsNetworkState.registrationTechName(tech)
 
     private fun detectRegistrationTech(lp: LinkProperties): Int {
-        val iface = lp.interfaceName ?: ""
-        if (iface.startsWith("ipsec", ignoreCase = true)) {
-            return REGISTRATION_TECH_IWLAN
-        }
-
-        val caps = if (this::network.isInitialized) {
-            try { connectivityManager.getNetworkCapabilities(network) } catch (_: Throwable) { null }
-        } else {
-            null
-        }
-
-        return if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
-            REGISTRATION_TECH_IWLAN
-        } else {
-            REGISTRATION_TECH_LTE
-        }
+        val currentNetwork = if (this::network.isInitialized) network else null
+        return ImsNetworkState.detectRegistrationTech(connectivityManager, currentNetwork, lp)
     }
 
     private fun resetRegistrationStateForConnect() {
@@ -282,19 +265,11 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
         imsReady = false
     }
 
-    private fun getPcscfServers(lp: LinkProperties): List<InetAddress> {
-        return (lp.javaClass.getMethod("getPcscfServers").invoke(lp) as List<*>)
-            .filterIsInstance<InetAddress>()
-            .sortedBy { if (it is Inet6Address) 0 else 1 }
-    }
+    private fun getPcscfServers(lp: LinkProperties): List<InetAddress> =
+        ImsNetworkState.getPcscfServers(lp)
 
-    private fun getImsLocalAddress(lp: LinkProperties): InetAddress? {
-        return lp.linkAddresses
-            .map { it.address }
-            .filter { !it.isAnyLocalAddress && !it.isLoopbackAddress }
-            .sortedBy { if (it is Inet6Address) 0 else 1 }
-            .firstOrNull()
-    }
+    private fun getImsLocalAddress(lp: LinkProperties): InetAddress? =
+        ImsNetworkState.getImsLocalAddress(lp)
 
     private fun clearCallAndCallbackStateForReconnect() {
         stopCallRuntime("IMS reconnect")
@@ -329,32 +304,11 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
     }
 
     
-    private fun ratName(rat: Int): String = when (rat) {
-        TelephonyManager.NETWORK_TYPE_LTE -> "LTE"
-        TelephonyManager.NETWORK_TYPE_NR -> "NR"
-        TelephonyManager.NETWORK_TYPE_IWLAN -> "IWLAN"
-        TelephonyManager.NETWORK_TYPE_EDGE -> "EDGE"
-        TelephonyManager.NETWORK_TYPE_GPRS -> "GPRS"
-        TelephonyManager.NETWORK_TYPE_GSM -> "GSM"
-        TelephonyManager.NETWORK_TYPE_UMTS -> "UMTS"
-        TelephonyManager.NETWORK_TYPE_HSPA -> "HSPA"
-        TelephonyManager.NETWORK_TYPE_HSDPA -> "HSDPA"
-        TelephonyManager.NETWORK_TYPE_HSUPA -> "HSUPA"
-        TelephonyManager.NETWORK_TYPE_UNKNOWN -> "UNKNOWN"
-        else -> "rat($rat)"
-    }
+    private fun ratName(rat: Int): String =
+        ImsNetworkState.ratName(rat)
 
-    private fun isRatReadyForImsNetworkRequest(): Boolean {
-        val dataRat = try { telephonyManager.dataNetworkType } catch (t: Throwable) { TelephonyManager.NETWORK_TYPE_UNKNOWN }
-        val voiceRat = try { telephonyManager.voiceNetworkType } catch (t: Throwable) { TelephonyManager.NETWORK_TYPE_UNKNOWN }
-        val ready = dataRat == TelephonyManager.NETWORK_TYPE_LTE ||
-            dataRat == TelephonyManager.NETWORK_TYPE_NR ||
-            dataRat == TelephonyManager.NETWORK_TYPE_IWLAN ||
-            voiceRat == TelephonyManager.NETWORK_TYPE_LTE ||
-            voiceRat == TelephonyManager.NETWORK_TYPE_NR
-        Rlog.d(TAG, "IMS network request RAT gate: data=${ratName(dataRat)} voice=${ratName(voiceRat)} ready=$ready")
-        return ready
-    }
+    private fun isRatReadyForImsNetworkRequest(): Boolean =
+        ImsNetworkState.isRatReadyForImsNetworkRequest(TAG, telephonyManager)
 
     private fun scheduleImsNetworkRequestRestart(reason: String, initialDelayMs: Long = 12_000L) {
         if (!imsNetworkRequestRestartScheduled.compareAndSet(false, true)) {
