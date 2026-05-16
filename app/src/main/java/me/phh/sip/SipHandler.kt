@@ -943,31 +943,16 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
 
         val writer = _writer ?: socket.gWriter()
 
-        val secClientLine = SipSecurityClientHeader.build(
+        val msg = SipRegisterRequestBuilder.build(
+            realm = realm,
+            registerHeaders = registerHeaders,
+            registerCounter = registerCounter,
+            contact = contact,
+            akaDigest = akaDigest,
             ipsecSettings = ipsecSettings,
             clientPort = socket.gLocalPort(),
             serverPort = serverSocket.localPort,
         )
-
-                    //P-Access-Network-Info: 3GPP-E-UTRAN-FDD;utran-cell-id-3gpp=216302ee2003a107
-        val msg =
-            SipRequest(
-                SipMethod.REGISTER,
-                "sip:$realm",
-                //"sip:lte-lguplus.co.kr",
-                registerHeaders +
-                    """
-                    Expires: 600000
-                    Cseq: $registerCounter REGISTER
-                    Contact: $contact
-                    Supported: path, gruu, sec-agree
-                    Allow: INVITE, ACK, CANCEL, BYE, UPDATE, REFER, NOTIFY, MESSAGE, PRACK, OPTIONS
-                    Authorization: $akaDigest
-                    Require: sec-agree
-                    Proxy-Require: sec-agree
-                    $secClientLine
-                    """.toSipHeadersMap()
-            ) // route present on all calls except this
         Rlog.d(TAG, "Sending $msg")
         synchronized(writer) {
             writer.write(msg.toByteArray())
