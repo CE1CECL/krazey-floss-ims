@@ -1,14 +1,12 @@
 //SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.media.*
 import android.net.*
 import android.os.Handler
 import android.os.HandlerThread
 import android.telephony.Rlog
-import android.telephony.SmsManager
 import android.net.TelephonyNetworkSpecifier
 import android.telephony.TelephonyManager
 import android.telephony.ims.stub.ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN
@@ -21,9 +19,7 @@ import java.net.*
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.thread
-import kotlin.concurrent.withLock
 
 class SipHandler(
     val ctxt: Context,
@@ -142,9 +138,6 @@ class SipHandler(
 
     private val dispatcher = SipDispatcher(TAG)
 
-    private val cbLock = ReentrantLock()
-    private var requestCallbacks: Map<SipMethod, ((SipRequest) -> Int)> = mapOf()
-    private var responseCallbacks: Map<String, ((SipResponse) -> Boolean)> = mapOf()
     // SIP responses must be written back on the same transport flow that delivered the request.
     // This is especially important for incoming INVITE over the TCP server socket: writing the
     // 180/200 to the registration/control socket can make the P-CSCF ignore the final response.
