@@ -665,11 +665,21 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         installSipCallbacks()
         handleResponse(regReply)
 
-        // two ways we'll get incoming messages:
+        startSipReaderLoops()
+    }
+
+    private fun startSipReaderLoops() {
+        // Two ways we'll get incoming messages:
         // - reply to normal socket (just read forever)
         // - connection to server socket
-        // start both in threads as we're only called here from network
-        // callback from which it's better to return
+        // Start both in threads as we're only called here from network callback from which
+        // it's better to return.
+        startMainSipReaderLoop()
+        startTcpServerSipReaderLoop()
+        startUdpServerSipReaderLoop()
+    }
+
+    private fun startMainSipReaderLoop() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 while (parseMessage(socket.gReader(), socket.gWriter())) { }
@@ -679,30 +689,35 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
             }
             if (shouldReconnectAfterSipTransportLoss("main/control SIP socket lost")) reconnectIms("main/control SIP socket lost")
         }
-                CoroutineScope(Dispatchers.IO).launch {
+    }
+
+    private fun startTcpServerSipReaderLoop() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                while (true) {
+                    val accepted = serverSocket.accept()
                     try {
-                        while (true) {
-                            val accepted = serverSocket.accept()
-                            try {
-                                while (parseMessage(accepted.reader, accepted.writer)) {
-                                }
-                            } catch (t: Throwable) {
-                                if (serverSocket.serverSocket.isClosed) {
-                                    throw t
-                                }
-                                Rlog.w(TAG, "Got exception in accepted TCP server SIP flow; keeping IMS server socket alive", t)
-                            } finally {
-                                serverSocket.closeAccepted(accepted.socket)
-                            }
+                        while (parseMessage(accepted.reader, accepted.writer)) {
                         }
-                    } catch(t: Throwable) {
-                        Rlog.w(TAG, "Got exception in TCP server socket, reconnecting", t)
-                        if (shouldReconnectAfterSipTransportLoss("TCP server SIP socket lost")) {
-                            reconnectIms("TCP server SIP socket lost")
+                    } catch (t: Throwable) {
+                        if (serverSocket.serverSocket.isClosed) {
+                            throw t
                         }
+                        Rlog.w(TAG, "Got exception in accepted TCP server SIP flow; keeping IMS server socket alive", t)
+                    } finally {
+                        serverSocket.closeAccepted(accepted.socket)
                     }
                 }
+            } catch(t: Throwable) {
+                Rlog.w(TAG, "Got exception in TCP server socket, reconnecting", t)
+                if (shouldReconnectAfterSipTransportLoss("TCP server SIP socket lost")) {
+                    reconnectIms("TCP server SIP socket lost")
+                }
+            }
+        }
+    }
 
+    private fun startUdpServerSipReaderLoop() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val bufferIn = ByteArray(128 * 1024)
