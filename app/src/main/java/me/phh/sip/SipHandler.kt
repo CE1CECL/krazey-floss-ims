@@ -294,10 +294,7 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
         currentCall = null
         clearPendingOutgoingInvite(closeRtpSocket = true, reason = "IMS reconnect")
         callGeneration.incrementAndGet()
-        synchronized(prAckWaitLock) {
-            prAckWait.clear()
-            prAckWaitLock.notifyAll()
-        }
+        prAckWaitTracker.clearAndNotifyAll()
         dispatcher.clearCallbacks()
         dispatcher.clearWriters()
         smsHandler.clearState()
@@ -1026,11 +1023,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
     }
 
     fun waitPrack(v: Int) {
-        synchronized(prAckWaitLock) {
-            while (prAckWait.contains(v)) {
-                prAckWaitLock.wait(1000)
-            }
-        }
+        prAckWaitTracker.waitFor(v)
     }
 
     private fun responseHeadersFromRequest(
@@ -1082,11 +1075,8 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
 
     fun handlePrack(request: SipRequest): Int {
         Rlog.d(TAG, "Received PRACK for ${request.headers["rack"]!![0]}")
-        synchronized(prAckWaitLock) {
-            val id = request.headers["rack"]!![0].split(" ")[0].toInt()
-            prAckWait -= id
-            prAckWaitLock.notifyAll()
-        }
+        val id = request.headers["rack"]!![0].split(" ")[0].toInt()
+        prAckWaitTracker.ack(id)
         return 200
     }
 
@@ -1361,10 +1351,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         }
 
         stopCallRuntime("call cleanup")
-        synchronized(prAckWaitLock) {
-            prAckWait.clear()
-            prAckWaitLock.notifyAll()
-        }
+        prAckWaitTracker.clearAndNotifyAll()
 
         Rlog.d(TAG, "Cancelled call $callId method=${request.method}")
 
@@ -1837,13 +1824,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
             // S9/O2 test mode: never block accept on pending incoming PRACK state.
             // The network currently does not PRACK our reliable incoming 183, so
             // waiting here makes the remote side ring until timeout.
-            synchronized(prAckWaitLock) {
-                if (prAckWait.isNotEmpty()) {
-                    Rlog.w(TAG, "Dropping stale PRACK waits before accept: $prAckWait")
-                    prAckWait.clear()
-                    prAckWaitLock.notifyAll()
-                }
-            }
+            prAckWaitTracker.dropStaleBeforeAccept(TAG)
 
             Rlog.d(TAG, "Accepting call")
             val myHeaders = call.callHeaders
@@ -2792,8 +2773,7 @@ a=sendrecv
     private val rtpSequenceNumber = AtomicInteger(0)
     private val rtpTimestampSamples = AtomicInteger(0)
 
-    val prAckWaitLock = Object()
-    var prAckWait = mutableSetOf<Int>()
+    private val prAckWaitTracker = PrackWaitTracker()
 
     private fun handleInDialogInvite(request: SipRequest, call: Call, responseWriter: OutputStream): Int {
         val callId = request.callIdOrEmpty()
@@ -2958,10 +2938,7 @@ a=sendrecv
         incomingAcceptedAwaitingAck.set(false)
         incomingHangupAfterAck.set(false)
         currentCall = null
-        synchronized(prAckWaitLock) {
-            prAckWait.clear()
-            prAckWaitLock.notifyAll()
-        }
+        prAckWaitTracker.clearAndNotifyAll()
 
         val f = request.headers["from"]
         val m = extractCallerNumberFromHeader(f!![0]!!)
@@ -3194,9 +3171,7 @@ a=sendrecv
                         Rlog.d(TAG, "Deferring incoming media threads until final ACK")
 
             if (sendReliable183) {
-                synchronized(prAckWaitLock) {
-                    prAckWait += mySeqCounter
-                }
+                prAckWaitTracker.add(mySeqCounter)
                 val msg =
                     SipResponse(
                         statusCode = 183,
