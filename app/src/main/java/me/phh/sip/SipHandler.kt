@@ -619,24 +619,19 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
                 serverSpiS = serverSpiS)
             ipsecResourcesClosed = false
 
-            val ealg = securityServerParams["ealg"] ?: "null"
-            val (alg, hmac_key) = if (securityServerParams["alg"] == "hmac-sha-1-96") {
-                // sha-1-96 mac key must be 160 bits, pad ik
-                IpSecAlgorithm.AUTH_HMAC_SHA1 to akaResult.ik + ByteArray(4)
-            } else {
-                IpSecAlgorithm.AUTH_HMAC_MD5 to akaResult.ik
-            }
-            val ipSecBuilder =
-                IpSecTransform.Builder(ctxt)
-                    .setAuthentication(IpSecAlgorithm(alg, hmac_key, 96))
-                    .also {
-                        if (ealg == "aes-cbc") {
-                            it.setEncryption(IpSecAlgorithm(IpSecAlgorithm.CRYPT_AES_CBC, akaResult.ck))
-                        }
-                    }
-
-            val serverInTransform = ipSecBuilder.buildTransportModeTransform(pcscfAddr, clientSpiS)
-            val serverOutTransform = ipSecBuilder.buildTransportModeTransform(localAddr, serverSpiC)
+            val ipsecTransforms = SipIpsecTransformBuilder.build(
+                ctxt = ctxt,
+                pcscfAddr = pcscfAddr,
+                localAddr = localAddr,
+                clientSpiS = clientSpiS,
+                serverSpiC = serverSpiC,
+                securityServerParams = securityServerParams,
+                integrityKey = akaResult.ik,
+                cipherKey = akaResult.ck,
+            )
+            val ipSecBuilder = ipsecTransforms.builder
+            val serverInTransform = ipsecTransforms.serverInTransform
+            val serverOutTransform = ipsecTransforms.serverOutTransform
             ipsecSettings = SipIpsecSettings(
                 clientSpiS = clientSpiS,
                 clientSpiC = clientSpiC,
