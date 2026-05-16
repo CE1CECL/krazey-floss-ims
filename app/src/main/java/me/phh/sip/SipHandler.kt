@@ -147,14 +147,6 @@ class SipHandler(
     lateinit private var localAddr: InetAddress
     lateinit private var pcscfAddr: InetAddress
 
-    data class SipIpsecSettings(
-        val clientSpiC: IpSecManager.SecurityParameterIndex,
-        val clientSpiS: IpSecManager.SecurityParameterIndex,
-        val serverSpiC: IpSecManager.SecurityParameterIndex? = null,
-        val serverSpiS: IpSecManager.SecurityParameterIndex? = null,
-        val serverInTransform: IpSecTransform? = null,
-        val serverOutTransform: IpSecTransform? = null,
-    )
     lateinit var ipsecSettings: SipIpsecSettings
     private var ipsecResourcesClosed = true
 
