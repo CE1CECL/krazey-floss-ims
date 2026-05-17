@@ -29,9 +29,24 @@ fun sipAkaChallenge(tm: TelephonyManager, nonceB64: String): SipAkaResult {
             challenge
         )
     val response = Base64.decode(responseB64, Base64.DEFAULT)
-    if (response[0] != (0xdb).toByte()) {
-        Rlog.d(TAG, "AKA challenge from SIP failed")
-        throw Exception("AKA Challenge from SIP failed")
+    if (response.isEmpty()) {
+        throw Exception("AKA Challenge from SIP returned empty response")
+    }
+
+    val responseTag = response[0].toInt() and 0xff
+    if (responseTag != 0xdb) {
+        val responseHex = response.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        Rlog.w(
+            TAG,
+            "AKA challenge from SIP failed tag=0x${responseTag.toString(16)} " +
+                "len=${response.size} response=$responseHex",
+        )
+
+        if (responseTag == 0xdc) {
+            Rlog.w(TAG, "AKA synchronization failure/AUTS returned by USIM; AUTS handling needed")
+        }
+
+        throw Exception("AKA Challenge from SIP failed tag=0x${responseTag.toString(16)}")
     }
 
     val responseStream = response.iterator()
