@@ -256,6 +256,34 @@ class SipHandler(
     private val mnc = carrierSettings.mnc
     private val imsi = subTelephonyManager.subscriberId
 
+    private fun outgoingInviteTargetUri(normalizedPhoneNumber: String): String {
+        if (isSingTel()) {
+            return if (normalizedPhoneNumber.startsWith("+")) {
+                "tel:$normalizedPhoneNumber"
+            } else {
+                "tel:$normalizedPhoneNumber;phone-context=${singtelServiceRealm()}"
+            }
+        }
+
+        return if (normalizedPhoneNumber.startsWith("+")) {
+            // Global TEL URIs must stand on their own. Adding phone-context to +E.164
+            // numbers makes some IMS cores drop the INVITE without any SIP response.
+            "tel:$normalizedPhoneNumber"
+        } else {
+            "tel:$normalizedPhoneNumber;phone-context=$realm"
+        }
+    }
+
+
+    private fun isSingTel(): Boolean =
+        mcc == "525" && mnc.padStart(3, '0') == "001"
+
+    private fun singtelServiceRealm(): String = "ims.singtel.com"
+
+    private fun outgoingServiceRealm(): String =
+        if (isSingTel()) singtelServiceRealm() else realm
+
+
     val isControlSocketUdp = carrierSettings.isControlSocketUdp
     val requireNonsessAka = carrierSettings.requireNonsessAka
 
@@ -2897,13 +2925,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
            val sdp = sdpLines.joinToString("\r\n").toByteArray(Charsets.US_ASCII)
 
             val normalizedPhoneNumber = normalizeOutgoingDialTargetForTelUri(phoneNumber)
-            val to = if (normalizedPhoneNumber.startsWith("+")) {
-                // Global TEL URIs must stand on their own. Adding phone-context to +E.164
-                // numbers makes some IMS cores drop the INVITE without any SIP response.
-                "tel:$normalizedPhoneNumber"
-            } else {
-                "tel:$normalizedPhoneNumber;phone-context=ims.mnc$mnc.mcc$mcc.3gppnetwork.org"
-            }
+            val to = outgoingInviteTargetUri(normalizedPhoneNumber)
             Rlog.d(TAG, "Outgoing dial target raw=$phoneNumber normalized=$normalizedPhoneNumber uri=$to")
             val sipInstance = "<urn:gsma:imei:${imei.substring(0, 8)}-${imei.substring(8, 14)}-0>"
             val local =
