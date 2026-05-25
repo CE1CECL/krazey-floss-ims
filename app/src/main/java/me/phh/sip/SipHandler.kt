@@ -262,6 +262,7 @@ class SipHandler(
     //private val realm = "ims.mnc$mnc.mcc$mcc.3gppnetwork.org"
     private val realm = "ims.mnc$mnc.mcc$mcc.3gppnetwork.org"
     private val user = "$imsi@$realm"
+    private var registerTargetRealm = realm
     private var akaDigest = ""
     private fun initialRegisterAuthorization(): String =
         """Digest username="$user",realm="$realm",nonce="",uri="sip:$realm",response="",algorithm=AKAv1-MD5"""
@@ -1022,10 +1023,22 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
 
         Rlog.d(TAG, "Requesting AKA challenge")
         val akaResult = sipAkaChallenge(subTelephonyManager, registerChallenge.nonceB64)
+        val registerDigestUriRealm =
+            if (registerChallenge.realm.equals("ims.singtel.com", ignoreCase = true)) {
+                Rlog.w(
+                    TAG,
+                    "Using SingTel challenge realm as REGISTER request/digest URI: " +
+                        "oldUri=sip:$realm newUri=sip:${registerChallenge.realm}",
+                )
+                registerChallenge.realm
+            } else {
+                realm
+            }
+        registerTargetRealm = registerDigestUriRealm
         akaDigest = SipRegistrationDigestFactory.create(
             user = user,
             realm = registerChallenge.realm,
-            uri = "sip:$realm",
+            uri = "sip:$registerDigestUriRealm",
             nonceB64 = registerChallenge.nonceB64,
             opaque = registerChallenge.opaque,
             akaResult = akaResult,
@@ -1476,7 +1489,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         val writer = _writer ?: socket.gWriter()
 
         val msg = SipRegisterRequestBuilder.build(
-            realm = realm,
+            realm = registerTargetRealm,
             registerHeaders = registerHeaders,
             registerCounter = registerCounter,
             contact = contact,
