@@ -256,6 +256,34 @@ class SipHandler(
     private val mnc = carrierSettings.mnc
     private val imsi = subTelephonyManager.subscriberId
 
+        private fun normalizeSingTelOutgoingSdpLine(line: String): String {
+            val normalizedAmrWbRtpmap =
+                if (line.startsWith("a=rtpmap:", ignoreCase = true) &&
+                    line.contains("AMR-WB/16000", ignoreCase = true) &&
+                    !line.contains("AMR-WB/16000/1", ignoreCase = true)
+                ) {
+                    line.replace("AMR-WB/16000", "AMR-WB/16000/1")
+                } else {
+                    line
+                }
+
+            val normalizedAmrFmtp =
+                if (normalizedAmrWbRtpmap.startsWith("a=fmtp:", ignoreCase = true)) {
+                    normalizedAmrWbRtpmap
+                        .replace("octet-align=0;", "")
+                        .replace(";octet-align=0", "")
+                        .replace("max-red=0", "max-red=220")
+                } else {
+                    normalizedAmrWbRtpmap
+                }
+
+            return if (normalizedAmrFmtp.equals("a=maxptime:240", ignoreCase = true)) {
+                "a=maxptime:40"
+            } else {
+                normalizedAmrFmtp
+            }
+        }
+
     private fun outgoingInviteTargetUri(normalizedPhoneNumber: String): String {
         if (isSingTel()) {
             val singtelInviteNumber = when {
@@ -2950,13 +2978,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                            line.startsWith("a=des:qos", ignoreCase = true) ||
                            line.startsWith("a=conf:qos", ignoreCase = true)
                    }
-                   .map { line ->
-                       if (line.equals("a=maxptime:240", ignoreCase = true)) {
-                           "a=maxptime:40"
-                       } else {
-                           line
-                       }
-                   }
+                   .map { line -> normalizeSingTelOutgoingSdpLine(line) }
            } else {
                sdpLines
            }
