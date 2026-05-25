@@ -259,9 +259,9 @@ class SipHandler(
     private fun outgoingInviteTargetUri(normalizedPhoneNumber: String): String {
         if (isSingTel()) {
             return if (normalizedPhoneNumber.startsWith("+")) {
-                "tel:$normalizedPhoneNumber"
+                "sip:$normalizedPhoneNumber@${singtelServiceRealm()};user=phone"
             } else {
-                "tel:$normalizedPhoneNumber;phone-context=${singtelServiceRealm()}"
+                "sip:$normalizedPhoneNumber;phone-context=${singtelServiceRealm()}@${singtelServiceRealm()};user=phone"
             }
         }
 
