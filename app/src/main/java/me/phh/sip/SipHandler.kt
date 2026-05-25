@@ -2937,8 +2937,24 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                "a=des:qos optional remote sendrecv",
                "a=sendrecv",
            )
-           val sdp = sdpLines.joinToString("\r\n").toByteArray(Charsets.US_ASCII)
-
+           val outgoingSdpLines = if (isSingTel()) {
+               sdpLines
+                   .filterNot { line ->
+                       line.startsWith("a=curr:qos", ignoreCase = true) ||
+                           line.startsWith("a=des:qos", ignoreCase = true) ||
+                           line.startsWith("a=conf:qos", ignoreCase = true)
+                   }
+                   .map { line ->
+                       if (line.equals("a=maxptime:240", ignoreCase = true)) {
+                           "a=maxptime:40"
+                       } else {
+                           line
+                       }
+                   }
+           } else {
+               sdpLines
+           }
+           val sdp = outgoingSdpLines.joinToString("\r\n").toByteArray(Charsets.US_ASCII)
             val normalizedPhoneNumber = normalizeOutgoingDialTargetForTelUri(phoneNumber)
             val to = outgoingInviteTargetUri(normalizedPhoneNumber)
             val singtelOutgoingInvitePaniLine =
@@ -2984,7 +3000,8 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 // Security-Verify, because the request is still sent on the
                 // protected flow, but do not require the remote side to
                 // understand sec-agree as an INVITE extension.
-                myHeaders - "expires" - "require" - "proxy-require"
+                (myHeaders - "expires" - "require" - "proxy-require" - "supported") +
+                    "Supported: 100rel, replaces, timer".toSipHeadersMap()
             } else {
                 myHeaders
             }
