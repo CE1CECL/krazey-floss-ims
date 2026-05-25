@@ -2672,6 +2672,11 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
     private fun sendCancelForPendingOutgoingInvite(pending: PendingOutgoingInvite, reason: String): Boolean {
         if (!pending.cancelSent.compareAndSet(false, true)) {
             Rlog.d(TAG, "CANCEL already sent for pending outgoing INVITE callId=${pending.callId} reason=$reason")
+            clearPendingOutgoingInvite(
+                pending.callId,
+                closeRtpSocket = true,
+                reason = "sent CANCEL for pending outgoing INVITE",
+            )
             return false
         }
 
@@ -2703,6 +2708,11 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         )
         Rlog.d(TAG, "Sending CANCEL for pending outgoing INVITE callId=${pending.callId} reason=$reason $cancel")
         synchronized(socket.gWriter()) { socket.gWriter().write(cancel.toByteArray()) }
+        clearPendingOutgoingInvite(
+            pending.callId,
+            closeRtpSocket = true,
+            reason = "sent CANCEL for pending outgoing INVITE",
+        )
         return true
     }
 
