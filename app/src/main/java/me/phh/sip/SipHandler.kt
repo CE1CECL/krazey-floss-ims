@@ -3054,16 +3054,37 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                     Contact: $contactTel
                     """.toSipHeadersMap() + generateCallId() - "p-asserted-identity"
             val inviteHeaders = if (isSingTel()) {
-                // stock-like SingTel MMTEL INVITE headers: keep the proven 19:83
-                // route, stock phone-context target and public identity, but restore
-                // the originating MMTEL service hints and 100rel/timer support that
-                // stock uses before receiving reliable 183 + PRACK.
-                (myHeaders - "supported" - "cseq" - "session-expires" - "min-se" -
-                    "p-access-network-info") +
+                // direct stock-like SingTel INVITE: whitelist only the dynamic
+                // dialog/security headers, then add the originating MMTEL header
+                // shape explicitly. This avoids carrying stale experiment headers
+                // from commonHeaders/myHeaders into the INVITE.
+                val singtelDynamicInviteHeaders = myHeaders.filterKeys { key ->
+                    key in setOf(
+                        "from",
+                        "to",
+                        "contact",
+                        "max-forwards",
+                        "user-agent",
+                        "route",
+                        "call-id",
+                        "security-verify",
+                        "p-preferred-identity",
+                    )
+                }
+
+                singtelDynamicInviteHeaders +
                     """
+                    Require: sec-agree
+                    Proxy-Require: sec-agree
                     Supported: 100rel, timer, sec-agree, replaces
-                    Session-Expires: 1800
+                    Allow: INVITE, ACK, CANCEL, BYE, UPDATE, REFER, NOTIFY, MESSAGE, PRACK, OPTIONS
+                    Accept-Contact: *;+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel"
+                    Content-Type: application/sdp
+                    P-Early-Media: supported
                     Min-SE: 900
+                    Session-Expires: 1800
+                    Accept: application/sdp
+                    P-Preferred-Service: urn:urn-7:3gpp-service.ims.icsi.mmtel
                     CSeq: 1 INVITE
                     """.toSipHeadersMap()
             } else {
