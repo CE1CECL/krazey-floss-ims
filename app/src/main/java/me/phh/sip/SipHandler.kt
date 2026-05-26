@@ -3037,7 +3037,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 // Security-Verify, because the request is still sent on the
                 // protected flow, but do not require the remote side to
                 // understand sec-agree as an INVITE extension.
-                (myHeaders - "expires" - "require" - "proxy-require" - "supported" - "cseq" - "session-expires" - "min-se") +
+                (myHeaders - "expires" - "require" - "proxy-require" - "supported" - "cseq" - "session-expires" - "min-se" - "p-preferred-identity" - "p-preferred-service" - "accept-contact") +
                     """
                     Supported: timer, sec-agree, replaces
                     Session-Expires: 1800
