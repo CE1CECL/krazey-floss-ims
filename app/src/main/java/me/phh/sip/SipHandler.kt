@@ -671,8 +671,31 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
         imsReady = false
     }
 
-    private fun getPcscfServers(lp: LinkProperties): List<InetAddress> =
-        ImsNetworkState.getPcscfServers(lp)
+    private fun getPcscfServers(lp: LinkProperties): List<InetAddress> {
+        val pcscfs = ImsNetworkState.getPcscfServers(lp)
+        if (!isSingTel()) {
+            return pcscfs
+        }
+
+        // prefer SingTel P-CSCF 19:83: stock and successful MO SMS used this
+        // family, while 17:83 repeatedly blackholed MO INVITE/MESSAGE.
+        val preferred = pcscfs.sortedWith(
+            compareBy<InetAddress> { addr ->
+                val host = addr.hostAddress.orEmpty().lowercase()
+                when {
+                    ":19:83:" in host -> 0
+                    ":17:83:" in host -> 1
+                    else -> 2
+                }
+            },
+        )
+
+        if (preferred != pcscfs) {
+            Rlog.d(TAG, "SingTel P-CSCF preference: original=$pcscfs preferred=$preferred")
+        }
+
+        return preferred
+    }
 
     private fun getImsLocalAddress(lp: LinkProperties): InetAddress? =
         ImsNetworkState.getImsLocalAddress(lp)
@@ -3020,13 +3043,16 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                     Contact: $contactTel
                     """.toSipHeadersMap() + generateCallId() - "p-asserted-identity"
             val inviteHeaders = if (isSingTel()) {
-                // SUBSCRIBE-like SingTel INVITE: the protected outbound SUBSCRIBE
-                // gets 200 OK with sec-agree, current PANI, public identity and
-                // +65 Contact. Keep that shape for INVITE, but keep INVITE SDP.
+                // stock-like SingTel MMTEL INVITE headers: keep the proven 19:83
+                // route, stock phone-context target and public identity, but restore
+                // the originating MMTEL service hints and 100rel/timer support that
+                // stock uses before receiving reliable 183 + PRACK.
                 (myHeaders - "supported" - "cseq" - "session-expires" - "min-se" -
-                    "p-preferred-service" - "accept-contact" - "p-access-network-info") +
+                    "p-access-network-info") +
                     """
-                    Supported: sec-agree
+                    Supported: 100rel, timer, sec-agree, replaces
+                    Session-Expires: 1800
+                    Min-SE: 900
                     CSeq: 1 INVITE
                     """.toSipHeadersMap()
             } else {
