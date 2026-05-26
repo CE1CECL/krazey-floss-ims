@@ -286,19 +286,22 @@ class SipHandler(
 
     private fun outgoingInviteTargetUri(normalizedPhoneNumber: String): String {
         if (isSingTel()) {
-            // SingTel still blackholes TEL, phone-context SIP URI and E.164 SIP URI.
-            // Try the simple local-number user at the service realm. This mirrors the
-            // network P-Asserted-Identity format seen on incoming calls:
-            //   P-Asserted-Identity: <sip:96457589@ims.singtel.com>
-            val singtelLocalInviteUser = when {
-                normalizedPhoneNumber.startsWith("+65") && normalizedPhoneNumber.length == 11 -> normalizedPhoneNumber.substring(3)
-                normalizedPhoneNumber.startsWith("65") && normalizedPhoneNumber.length == 10 -> normalizedPhoneNumber.substring(2)
-                else -> normalizedPhoneNumber.trimStart('+')
+            val singtelInviteNumber = when {
+                normalizedPhoneNumber.startsWith("+") -> normalizedPhoneNumber
+                normalizedPhoneNumber.startsWith("65") && normalizedPhoneNumber.length == 10 -> "+$normalizedPhoneNumber"
+                normalizedPhoneNumber.length == 8 -> "+65$normalizedPhoneNumber"
+                else -> normalizedPhoneNumber
             }
-            return "sip:$singtelLocalInviteUser@${singtelServiceRealm()};user=phone"
+            return if (singtelInviteNumber.startsWith("+")) {
+                "sip:$singtelInviteNumber@${singtelServiceRealm()};user=phone"
+            } else {
+                "sip:$singtelInviteNumber;phone-context=${singtelServiceRealm()}@${singtelServiceRealm()};user=phone"
+            }
         }
 
         return if (normalizedPhoneNumber.startsWith("+")) {
+            // Global TEL URIs must stand on their own. Adding phone-context to +E.164
+            // numbers makes some IMS cores drop the INVITE without any SIP response.
             "tel:$normalizedPhoneNumber"
         } else {
             "tel:$normalizedPhoneNumber;phone-context=$realm"
