@@ -3020,8 +3020,19 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
             val transport = if (socket is SipConnectionTcp) "tcp" else "udp"
             val outgoingIdentitySip = mySip
             val outgoingPreferredIdentitySip = mySip
+            // stock-like SingTel INVITE Contact user: stock outgoing INVITE
+            // summaries expose a local contact user, and stock incoming INVITEs
+            // target that registered/contact identity. Keep public identity in
+            // From/P-Preferred-Identity, but advertise IMSI as Contact user.
+            val outgoingContactUser = if (isSingTel()) imsi else myTel
+            val outgoingContactFeatures =
+                if (isSingTel()) {
+                    """+sip.instance="$sipInstance";audio;+g.3gpp.accesstype="cellular";+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel";+g.3gpp.smsip"""
+                } else {
+                    """+sip.instance="$sipInstance";+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel";+g.3gpp.smsip;audio"""
+                }
             val contactTel =
-                """<sip:$myTel@$local;transport=$transport>;expires=7200;+sip.instance="$sipInstance";+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel";+g.3gpp.smsip;audio"""
+                """<sip:$outgoingContactUser@$local;transport=$transport>;expires=7200;$outgoingContactFeatures"""
             val myHeaders = commonHeaders +
                 """
                     From: <$outgoingIdentitySip>
