@@ -298,7 +298,13 @@ class SipHandler(
 
     private fun outgoingInviteTargetUri(normalizedPhoneNumber: String): String {
         if (isSingTel()) {
-            return singtelPhoneContextSipUri(normalizedPhoneNumber)
+            val singtelInviteNumber = when {
+                normalizedPhoneNumber.startsWith("+") -> normalizedPhoneNumber
+                normalizedPhoneNumber.startsWith("65") && normalizedPhoneNumber.length == 10 -> "+$normalizedPhoneNumber"
+                normalizedPhoneNumber.length == 8 -> "+65$normalizedPhoneNumber"
+                else -> normalizedPhoneNumber
+            }
+            return "sip:$singtelInviteNumber@${singtelServiceRealm()};user=phone"
         }
 
         return if (normalizedPhoneNumber.startsWith("+")) {
@@ -2996,22 +3002,10 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 else
                     "${socket.gLocalAddr().hostAddress}:${serverSocket.localPort}"
             val transport = if (socket is SipConnectionTcp) "tcp" else "udp"
-            val outgoingIdentitySip =
-                if (isSingTel()) {
-                    singtelPhoneContextSipUri(myTel)
-                } else {
-                    mySip
-                }
-            val outgoingPreferredIdentitySip = if (isSingTel()) mySip else outgoingIdentitySip
-            val outgoingContactUser = if (isSingTel()) imsi else myTel
-            val outgoingContactFeatures =
-                if (isSingTel()) {
-                    """audio;+g.3gpp.accesstype="cellular";+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel";+g.3gpp.smsip"""
-                } else {
-                    """+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel";+g.3gpp.smsip;audio"""
-                }
+            val outgoingIdentitySip = mySip
+            val outgoingPreferredIdentitySip = mySip
             val contactTel =
-                """<sip:$outgoingContactUser@$local;transport=$transport>;expires=7200;+sip.instance="$sipInstance";$outgoingContactFeatures"""
+                """<sip:$myTel@$local;transport=$transport>;expires=7200;+sip.instance="$sipInstance";+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel";+g.3gpp.smsip;audio"""
             val myHeaders = commonHeaders +
                 """
                     From: <$outgoingIdentitySip>
@@ -3033,16 +3027,14 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                     Contact: $contactTel
                     """.toSipHeadersMap() + generateCallId() - "p-asserted-identity"
             val inviteHeaders = if (isSingTel()) {
-                // SingTel accepts sec-agree during REGISTER, but silently drops
-                // outgoing INVITE with REGISTER/sec-agree-only headers. Keep
-                // Security-Verify, because the request is still sent on the
-                // protected flow, but do not require the remote side to
-                // understand sec-agree as an INVITE extension.
-                (myHeaders - "expires" - "require" - "proxy-require" - "supported" - "cseq" - "session-expires" - "min-se" - "p-preferred-service" - "accept-contact") +
+                // SUBSCRIBE-like SingTel INVITE: the protected outbound SUBSCRIBE
+                // gets 200 OK with sec-agree, current PANI, public identity and
+                // +65 Contact. Keep that shape for INVITE, but keep INVITE SDP.
+                (myHeaders - "supported" - "cseq" - "session-expires" - "min-se" -
+                    "p-preferred-service" - "accept-contact" - "p-access-network-info") +
                     """
-                    Supported: timer, sec-agree, replaces
-                    Session-Expires: 1800
-                    Min-SE: 900
+                    Supported: sec-agree
+                    P-Access-Network-Info: 3GPP-E-UTRAN-FDD;utran-cell-id-3gpp=20810b8c49752501
                     CSeq: 1 INVITE
                     """.toSipHeadersMap()
             } else {
