@@ -2999,14 +2999,21 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 else
                     "${socket.gLocalAddr().hostAddress}:${serverSocket.localPort}"
             val transport = if (socket is SipConnectionTcp) "tcp" else "udp"
+            val outgoingIdentitySip =
+                if (isSingTel() && !mySip.contains(";user=phone", ignoreCase = true)) {
+                    "$mySip;user=phone"
+                } else {
+                    mySip
+                }
+            val outgoingContactUserPhoneParam = if (isSingTel()) ";user=phone" else ""
             val contactTel =
-                """<sip:$myTel@$local;transport=$transport>;expires=7200;+sip.instance="$sipInstance";+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel";+g.3gpp.smsip;audio"""
+                """<sip:$myTel@$local;transport=$transport$outgoingContactUserPhoneParam>;expires=7200;+sip.instance="$sipInstance";+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel";+g.3gpp.smsip;audio"""
             val myHeaders = commonHeaders +
                 """
-                    From: <$mySip>
+                    From: <$outgoingIdentitySip>
                     To: <$to>
-                    P-Preferred-Identity: <$mySip>
-                    P-Asserted-Identity: <$mySip>
+                    P-Preferred-Identity: <$outgoingIdentitySip>
+                    P-Asserted-Identity: <$outgoingIdentitySip>
                     Expires: 7200
                     Require: sec-agree
                     Proxy-Require: sec-agree
