@@ -3076,11 +3076,11 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
             val transport = if (socket is SipConnectionTcp) "tcp" else "udp"
             val outgoingIdentitySip = mySip
             val outgoingPreferredIdentitySip = mySip
-            // public SingTel INVITE Contact user: after fixing route/Via/SDP,
-            // retest the Contact identity. Keep From/P-Preferred/P-Asserted
-            // and Contact on the same public +65 identity like the successful
-            // MESSAGE path, instead of advertising IMSI as the INVITE Contact.
-            val outgoingContactUser = myTel
+            // registered SingTel INVITE Contact user: retest Contact on the latest
+            // corrected INVITE baseline. REGISTER and incoming voice routing use the
+            // IMSI contact identity, so keep From/P-Preferred on the voice identity
+            // but advertise the registered IMSI contact for dialog reachability.
+            val outgoingContactUser = if (isSingTel()) imsi else myTel
             val outgoingContactFeatures =
                 if (isSingTel()) {
                     """+sip.instance="$sipInstance";audio;+g.3gpp.accesstype="cellular";+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel";+g.3gpp.smsip"""
