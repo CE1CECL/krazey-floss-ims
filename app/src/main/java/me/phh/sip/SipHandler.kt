@@ -3128,6 +3128,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                         "route",
                         "call-id",
                         "security-verify",
+                        "p-access-network-info",
                         "p-preferred-identity",
                     )
                 }
