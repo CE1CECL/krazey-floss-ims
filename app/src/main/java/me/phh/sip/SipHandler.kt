@@ -1620,6 +1620,30 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         registerCounter += 1
     }
 
+        private fun rewriteSingTelRegisteredCommonHeaders(headers: SipHeadersMap): SipHeadersMap {
+            if (!isSingTel() || !this::pcscfAddr.isInitialized) {
+                return headers
+            }
+
+            val host = pcscfAddr.hostAddress.orEmpty()
+            if (host.isBlank()) {
+                return headers
+            }
+
+            val routeHost = if (host.contains(":")) "[$host]" else host
+            val preferredRoute = "<sip:$routeHost:7777;transport=tcp;lr>"
+            val oldRoute = headers["route"]
+
+            if (oldRoute != listOf(preferredRoute)) {
+                Rlog.d(
+                    TAG,
+                    "SingTel Service-Route override: old=$oldRoute preferred=$preferredRoute",
+                )
+            }
+
+            return headers + ("route" to listOf(preferredRoute))
+        }
+
     fun registerCallback(response: SipResponse): Boolean {
         // once we get there all register must be successful
         // on failure just abort thread, ims will restart
@@ -1628,7 +1652,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         val registeredIdentity = SipRegisterSuccessParser.parse(response)
         mySip = registeredIdentity.mySip
         myTel = registeredIdentity.myTel
-        commonHeaders += registeredIdentity.commonHeaders()
+        commonHeaders += rewriteSingTelRegisteredCommonHeaders(registeredIdentity.commonHeaders())
 
         subscribe()
 
