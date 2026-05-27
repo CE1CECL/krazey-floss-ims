@@ -3122,6 +3122,9 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 // SingTel INVITE require precondition: SDP now advertises QoS
                 // preconditions, so the SIP capability headers must advertise
                 // and require the precondition extension as well.
+                // do not send P-Asserted-Identity on SingTel INVITE: MESSAGE accepts it,
+                // but for originating voice calls PAI is normally asserted by the network.
+                // Keep P-Preferred-Identity only and let the P-CSCF assert identity.
                 // direct stock-like SingTel INVITE: whitelist only the dynamic
                 // dialog/security headers, then add the originating MMTEL header
                 // shape explicitly. This avoids carrying stale experiment headers
@@ -3152,7 +3155,6 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                     Accept-Contact: *;+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel"
                     Content-Type: application/sdp
                     P-Early-Media: supported
-                    P-Asserted-Identity: <sip:$myTel@${outgoingServiceRealm()}>
                     Min-SE: 900
                     Session-Expires: 1800
                     Accept: application/sdp
