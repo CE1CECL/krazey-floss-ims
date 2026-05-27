@@ -3125,6 +3125,9 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 // do not send P-Asserted-Identity on SingTel INVITE: MESSAGE accepts it,
                 // but for originating voice calls PAI is normally asserted by the network.
                 // Keep P-Preferred-Identity only and let the P-CSCF assert identity.
+                // SingTel full MMTEL accept/allow profile: match the voice-side
+                // capability headers seen from SingTel INVITEs more closely.
+                // Keep the already-proven route/Via/PANI/precondition baseline.
                 // direct stock-like SingTel INVITE: whitelist only the dynamic
                 // dialog/security headers, then add the originating MMTEL header
                 // shape explicitly. This avoids carrying stale experiment headers
@@ -3167,13 +3170,16 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                     Proxy-Require: sec-agree
                     $singtelInvitePaniHeader
                     Supported: 100rel, timer, sec-agree, precondition, replaces
-                    Allow: INVITE, ACK, CANCEL, BYE, UPDATE, REFER, NOTIFY, MESSAGE, PRACK, OPTIONS
+                    Allow: REGISTER, REFER, NOTIFY, SUBSCRIBE, UPDATE, INFO, MESSAGE, PRACK, INVITE, ACK, OPTIONS, CANCEL, BYE
                     Accept-Contact: *;+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel"
                     Content-Type: application/sdp
                     P-Early-Media: supported
                     Min-SE: 900
                     Session-Expires: 1800
                     Accept: application/sdp
+                    Accept: application/3gpp-ims+xml
+                    Accept: application/vnd.3gpp.state-and-event-info+xml
+                    Recv-Info: g.3gpp.state-and-event
                     P-Preferred-Service: urn:urn-7:3gpp-service.ims.icsi.mmtel
                     CSeq: 1 INVITE
                     """.toSipHeadersMap()
