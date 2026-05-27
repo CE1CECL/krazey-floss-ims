@@ -3118,6 +3118,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 // from commonHeaders/myHeaders into the INVITE.
                 val singtelDynamicInviteHeaders = myHeaders.filterKeys { key ->
                     key in setOf(
+                        "via",
                         "from",
                         "to",
                         "contact",
