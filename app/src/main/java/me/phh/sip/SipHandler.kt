@@ -3129,7 +3129,11 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 // dialog/security headers, then add the originating MMTEL header
                 // shape explicitly. This avoids carrying stale experiment headers
                 // from commonHeaders/myHeaders into the INVITE.
-                val singtelDynamicInviteHeaders = myHeaders.filterKeys { key ->
+                // SingTel INVITE phone-context own identity: SingTel voice-side
+                // INVITEs use phone-context SIP identities. Keep Contact/SMS paths
+                // unchanged, but advertise our originating voice identity in the
+                // same phone-context shape as the target URI.
+                val singtelBaseInviteHeaders = myHeaders.filterKeys { key ->
                     key in setOf(
                         "via",
                         "from",
@@ -3144,7 +3148,19 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                         "p-preferred-identity",
                     )
                 }
-
+                val singtelInviteIdentity = singtelPhoneContextSipUri(myTel)
+                val singtelInviteFromTag =
+                    myHeaders["from"]?.firstOrNull()
+                        ?.substringAfter(";tag=", missingDelimiterValue = "")
+                        ?.substringBefore(";")
+                        ?.takeIf { it.isNotBlank() }
+                        ?: "phh${System.currentTimeMillis().toString(16)}"
+                val singtelDynamicInviteHeaders =
+                    (singtelBaseInviteHeaders - "from" - "p-preferred-identity") +
+                        """
+                        From: <$singtelInviteIdentity>;tag=$singtelInviteFromTag
+                        P-Preferred-Identity: <$singtelInviteIdentity>
+                        """.toSipHeadersMap()
                 singtelDynamicInviteHeaders +
                     """
                     Require: sec-agree, precondition
