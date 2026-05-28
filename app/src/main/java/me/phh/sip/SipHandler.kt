@@ -2764,26 +2764,38 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         }
     }
 
+    private val singtelMoPathReconnectNeeded = AtomicBoolean(false)
+
     private fun reconnectAfterSingTelBlackholedOutgoingInvite(reason: String) {
         if (!isSingTel()) return
 
-        // SingTel blackholed outgoing INVITE cleanup: after an unanswered MO INVITE,
-        // the next MO MESSAGE also times out even though MT INVITE still works.
-        // Tear down and reacquire the IMS SIP/IPsec flow after sending CANCEL so
-        // SMS/call attempts do not keep using the poisoned transaction state.
+        // SingTel lazy MO reconnect: after an unanswered outgoing INVITE the
+        // next MO request path can be poisoned, but MT calls may still arrive
+        // on the current registration/socket. Do not immediately tear down IMS
+        // after local CANCEL; that creates a short MT outage. Mark the MO path
+        // dirty and reconnect only before the next outgoing SMS/call.
+        singtelMoPathReconnectNeeded.set(true)
+        Rlog.w(
+            TAG,
+            "Marking SingTel MO path for lazy IMS reconnect after blackholed outgoing INVITE: reason=$reason",
+        )
+    }
+
+    private fun reconnectSingTelMoPathIfNeeded(reason: String, afterReconnect: () -> Unit): Boolean {
+        if (!isSingTel() || !singtelMoPathReconnectNeeded.compareAndSet(true, false)) {
+            return false
+        }
+
+        Rlog.w(TAG, "SingTel lazy MO reconnect before $reason")
+        reconnectIms("SingTel lazy MO reconnect before $reason")
         myHandler.postDelayed({
-            if (!this::network.isInitialized) return@postDelayed
-            if (pendingOutgoingInvite != null || currentCall != null) {
-                Rlog.w(
-                    TAG,
-                    "Deferring SingTel IMS reconnect after blackholed outgoing INVITE; " +
-                        "call state still active/pending reason=$reason",
-                )
+            if (!this::network.isInitialized) {
+                Rlog.w(TAG, "SingTel lazy MO reconnect finished without initialized network before $reason")
                 return@postDelayed
             }
-
-            reconnectIms("SingTel blackholed outgoing INVITE cleanup: $reason")
-        }, 1500L)
+            afterReconnect()
+        }, 3000L)
+        return true
     }
 
     private fun sendCancelForPendingOutgoingInvite(pending: PendingOutgoingInvite, reason: String): Boolean {
@@ -2972,6 +2984,9 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
     var respInFlight: SipResponse? = null
     fun call(phoneNumber: String) {
         thread {
+            if (reconnectSingTelMoPathIfNeeded("outgoing call after blackholed INVITE") { call(phoneNumber) }) {
+                return@thread
+            }
             callStopped.set(false)
             callStarted.set(false)
             threadsStarted.set(false)
@@ -4407,6 +4422,11 @@ Content-Length: 0
         successCb: (() -> Unit),
         failCb: (() -> Unit),
     ) {
+        if (reconnectSingTelMoPathIfNeeded("outgoing SMS after blackholed INVITE") {
+                smsHandler.sendSms(smsSmsc, pdu, ref, successCb, failCb)
+            }) {
+            return
+        }
         smsHandler.sendSms(smsSmsc, pdu, ref, successCb, failCb)
     }
 
