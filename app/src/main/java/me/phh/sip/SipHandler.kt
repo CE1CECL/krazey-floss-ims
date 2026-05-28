@@ -3630,32 +3630,61 @@ a=sendrecv
             lookTrackMatching(telephoneEventRtpmapName(selectedAudioCodec)) ?: return 488
         val amrFmtpAnswer =
             trackRequirements(amrTrack) ?: defaultSpeechFmtpAnswer(amrTrack, selectedAudioCodec)
+        val remotePtime = attributes.firstOrNull { it.startsWith("ptime:") } ?: "ptime:20"
         val remoteMaxptime = attributes.firstOrNull { it.startsWith("maxptime:") } ?: "maxptime:20"
         val allTracks = listOf(amrTrack, dtmfTrack)
         val sdpBandwidthAs = sdpBandwidthAsKbps(selectedAudioCodec)
-        val owner = request.destination.substringAfter("sip:").substringBefore("@")
+        val remoteBandwidthLines = sdp
+            .filter { it.startsWith("b=", ignoreCase = true) }
+            .map { it.substring(2).trim() }
+            .filter { it.startsWith("AS:", ignoreCase = true) }
+        val answerBandwidthLines = if (remoteBandwidthLines.isNotEmpty()) {
+            remoteBandwidthLines
+        } else {
+            listOf("AS:$sdpBandwidthAs")
+        }
+        val remoteDirection = attributes.firstOrNull {
+            it == "sendrecv" || it == "sendonly" || it == "recvonly" || it == "inactive"
+        }
+        val answerDirection = when (remoteDirection) {
+            "sendonly" -> "recvonly"
+            "recvonly" -> "sendonly"
+            "inactive" -> "inactive"
+            "sendrecv" -> "sendrecv"
+            else -> null
+        }
+        Rlog.d(
+            TAG,
+            "Conservative in-dialog INVITE SDP answer: " +
+                "bandwidth=$answerBandwidthLines ptime=$remotePtime maxptime=$remoteMaxptime " +
+                "remoteDirection=$remoteDirection answerDirection=$answerDirection"
+        )
+        val localSdpSessionVersion = call.localSdpVersion.incrementAndGet().coerceAtLeast(3)
+        Rlog.d(
+            TAG,
+            "In-dialog INVITE local SDP origin: owner=- sessionId=1 " +
+                "sessionVersion=$localSdpSessionVersion"
+        )
         val ipType = if (socket.gLocalAddr() is Inet6Address) "IP6" else "IP4"
-        val answerSdp = listOf(
+        val answerSdpLines = mutableListOf(
             "v=0",
-            "o=$owner 1 2 IN $ipType ${socket.gLocalAddr().hostAddress}",
-            "s=phh voice call",
+            "o=- 1 $localSdpSessionVersion IN $ipType ${socket.gLocalAddr().hostAddress}",
+            "s=-",
             "c=IN $ipType ${socket.gLocalAddr().hostAddress}",
-            "b=AS:$sdpBandwidthAs",
-            "b=RS:0",
-            "b=RR:0",
             "t=0 0",
             "m=audio ${call.rtpSocket.localPort} RTP/AVP ${allTracks.joinToString(" ")}",
-            "b=AS:$sdpBandwidthAs",
-            "b=RS:0",
-            "b=RR:0",
+        )
+        answerBandwidthLines.forEach { answerSdpLines += "b=$it" }
+        answerSdpLines += listOf(
             "a=$amrTrackDesc",
-            "a=ptime:20",
+            "a=$remotePtime",
             "a=$remoteMaxptime",
             "a=$dtmfTrackDesc",
             "a=$amrFmtpAnswer",
             "a=fmtp:$dtmfTrack 0-15",
-            "a=sendrecv",
-        ).joinToString("\r\n").toByteArray(Charsets.US_ASCII)
+        )
+        answerDirection?.let { answerSdpLines += "a=$it" }
+        val answerSdp = answerSdpLines.joinToString("\r\n").toByteArray(Charsets.US_ASCII)
 
         currentCall = call.copy(
             amrTrack = amrTrack,
@@ -3670,14 +3699,28 @@ a=sendrecv
                 ?: call.remoteContact,
         )
 
+        val requestSessionExpires = request.headers["session-expires"]?.getOrNull(0)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        val requestMinSe = request.headers["min-se"]?.getOrNull(0)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        val inDialogSessionTimerHeaders = mutableMapOf<String, List<String>>()
+        requestSessionExpires?.let { inDialogSessionTimerHeaders["session-expires"] = listOf(it) }
+        requestMinSe?.let { inDialogSessionTimerHeaders["min-se"] = listOf(it) }
+        Rlog.d(
+            TAG,
+            "In-dialog INVITE session timer response headers: " +
+                "Session-Expires=$requestSessionExpires Min-SE=$requestMinSe"
+        )
+
         val responseHeaders = responseHeadersFromRequest(
             request,
             extra = """
                 Contact: ${call.callHeaders["contact"]!!.first()}
-                Supported: replaces, timer
+                Supported: timer
                 Content-Type: application/sdp
-                Session-Expires: 1800;refresher=uas
-            """.toSipHeadersMap()
+            """.toSipHeadersMap() + inDialogSessionTimerHeaders
         )
         val response = SipResponse(
             statusCode = 200,
