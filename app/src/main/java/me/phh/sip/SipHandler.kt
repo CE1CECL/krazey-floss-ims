@@ -2888,6 +2888,19 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         )
         Rlog.d(TAG, "Sending CANCEL for pending outgoing INVITE callId=${pending.callId} reason=$reason $cancel")
         synchronized(socket.gWriter()) { socket.gWriter().write(cancel.toByteArray()) }
+
+        /*
+         * Clear stale pending outgoing INVITE immediately after local CANCEL.
+         *
+         * Some carriers silently blackhole the originating INVITE. If the user
+         * hangs up, no final INVITE response/487 may arrive, so keeping
+         * pendingOutgoingInvite set poisons the next incoming call path.
+         */
+        clearPendingOutgoingInvite(
+            callId = pending.callId,
+            closeRtpSocket = true,
+            reason = "local CANCEL sent: $reason",
+        )
         return true
     }
 
