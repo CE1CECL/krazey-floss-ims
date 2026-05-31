@@ -3961,19 +3961,19 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                     decoder.releaseOutputBuffer(outBufIndex, false)
                 }
             }
-            downlinkPlayoutBuffers.running.set(false)
-            try { downlinkPlayoutThread.interrupt() } catch (t: Throwable) { Rlog.d(TAG, "Downlink playout interrupt failed during decode cleanup", t) }
-            try { audioTrack.stop() } catch (t: Throwable) { Rlog.d(TAG, "AudioTrack stop failed during decode cleanup", t) }
-            try { audioTrack.release() } catch (t: Throwable) { Rlog.d(TAG, "AudioTrack release failed during decode cleanup", t) }
-            try { decoder.stop() } catch (t: Throwable) { Rlog.d(TAG, "Decoder stop failed during decode cleanup", t) }
-            try { decoder.release() } catch (t: Throwable) { Rlog.d(TAG, "Decoder release failed during decode cleanup", t) }
-            SipAudioModeRestorer.restoreAfterImsCall(
+            SipDownlinkAudioCleanup.cleanup(
                 logTag = TAG,
                 context = ctxt,
-                reason = "decode thread cleanup",
-                previousMode = prevDecodeAudioMode,
+                audioTrack = audioTrack,
+                decoder = decoder,
+                playoutBuffers = downlinkPlayoutBuffers,
+                playoutThread = downlinkPlayoutThread,
+                callStopped = callStopped,
+                callGeneration = callGeneration,
+                generation = gen,
+                receivedCount = receivedCount,
+                previousAudioMode = prevDecodeAudioMode,
             )
-            Rlog.d(TAG, "Decode thread cleanup complete: callStopped=${callStopped.get()} genMismatch=${callGeneration.get() != gen} received=$receivedCount")
         }
     }
 
