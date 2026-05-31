@@ -3916,7 +3916,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 // payloads into generic AMR storage frames for MediaCodec.  The old code
                 // only decoded FT=7, which made calls silent whenever the network switched
                 // to a lower AMR mode such as FT=2.
-                val pt = dgramBuf[1].toUByte().toInt() and 0x7f
+                val pt = SipRtpPacketParser.payloadType(dgramBuf)
                 val amrFrame = SipAmrRtpPayload.storageFrameFromBandwidthEfficientRtp(audioCodec, dgramBuf, dgram.length)
                 val ftForLog = amrFrame?.ft ?: 15
 
