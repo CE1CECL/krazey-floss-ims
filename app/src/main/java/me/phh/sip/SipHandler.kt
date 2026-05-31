@@ -2305,72 +2305,35 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                     logInput = realFrameCount < 5,
                 )
 
-                // Drain all output frames the encoder produced for this input.
-                // Use -1 (block) on the first call so we always wait for the async
-                // C2 encoder to finish; use 0 on subsequent calls to collect any
-                // additional frames without stalling.  Without draining, the output
-                // queue fills up and dequeueInputBuffer(-1) deadlocks.
-                val outBufInfo = MediaCodec.BufferInfo()
-                var drainTimeout = -1L
-                var outCount = 0
-                while (true) {
-                    val outBufIdx = encoder.dequeueOutputBuffer(outBufInfo, drainTimeout)
-                    drainTimeout = 0L
-                    if (outBufIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                        Rlog.d(TAG, "Encoder output format changed")
-                        continue
-                    }
-                    if (outBufIdx < 0) {
-                        if (outCount > 0) Rlog.d(TAG, "Drained $outCount output buffers")
-                        break
-                    }
-                    outCount++
-
-                    val outBuf = encoder.getOutputBuffer(outBufIdx)!!
-
-                    val encoderData = ByteArray(outBufInfo.size)
-                    outBuf.get(encoderData)
-                    encoder.releaseOutputBuffer(outBufIdx, false)
-
-                    if (realFrameCount == 0) {
-                        Rlog.d(TAG, "First encoder output: size=${outBufInfo.size} raw=${encoderData.take(32).joinToString(" ") { "%02x".format(it) }}")
-                    }
-
-                    var bufPos = 0
-                    while (bufPos < outBufInfo.size) {
-                        val ft = (encoderData[bufPos].toUByte().toInt() shr 3) and 0xf
-                        val frameSize = SipAmrRtpPayload.storageFrameSizeBytes(audioCodec, ft)
-                        if (frameSize == null) {
-                            Rlog.w(TAG, "Skipping encoder frame with unsupported AMR FT=$ft codec=${audioCodec.name}")
-                            break
-                        }
-                        if (outBufInfo.size - bufPos < frameSize) break
-
-                        val sequenceNumber = rtpSequenceNumber.getAndIncrement()
-                        val timestamp = rtpTimestampSamples.getAndAdd(audioCodec.rtpTimestampStep)
-                        val sendCall = currentCall ?: break
-                        val storageFrame = encoderData.copyOfRange(bufPos, bufPos + frameSize)
-                        if (!SipUplinkMediaRtpSender.sendStorageFrame(
+                val drainState = SipUplinkAudioEncoder.drainEncodedOutput(
+                    logTag = TAG,
+                    encoder = encoder,
+                    audioCodec = audioCodec,
+                    firstPacket = firstPacket,
+                    realFrameCount = realFrameCount,
+                    nextSequenceNumber = { rtpSequenceNumber.getAndIncrement() },
+                    nextTimestamp = { rtpTimestampSamples.getAndAdd(audioCodec.rtpTimestampStep) },
+                    sendFrame = sendFrame@{ sequenceNumber, timestamp, storageFrame, marker, frameType, frameSize, frameCount ->
+                        val sendCall = currentCall ?: return@sendFrame false
+                        SipUplinkMediaRtpSender.sendStorageFrame(
                             logTag = TAG,
                             audioCodec = audioCodec,
                             payloadType = sendCall.amrTrack,
                             sequenceNumber = sequenceNumber,
                             timestamp = timestamp,
                             storageFrame = storageFrame,
-                            marker = firstPacket,
+                            marker = marker,
                             rtpSocket = sendCall.rtpSocket,
                             remoteAddr = sendCall.rtpRemoteAddr,
                             remotePort = sendCall.rtpRemotePort,
-                            frameType = ft,
+                            frameType = frameType,
                             frameSize = frameSize,
-                            realFrameCount = realFrameCount,
-                        )) break
-                        firstPacket = false
-
-                        realFrameCount++
-                        bufPos += frameSize
-                    }
-                }
+                            realFrameCount = frameCount,
+                        )
+                    },
+                )
+                firstPacket = drainState.firstPacket
+                realFrameCount = drainState.realFrameCount
             }
             SipUplinkAudioCleanup.cleanup(
                 logTag = TAG,
