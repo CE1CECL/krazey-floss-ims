@@ -2425,17 +2425,16 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                     }
                 }
             }
-            Rlog.d(TAG, "Encode thread exiting: callStopped=${callStopped.get()}, genMismatch=${callGeneration.get() != gen}, totalPacketsSent=${rtpSequenceNumber.get()}")
-            try { audioRecord.stop() } catch (t: Throwable) { Rlog.d(TAG, "AudioRecord stop failed during encode cleanup", t) }
-            try { audioRecord.release() } catch (t: Throwable) { Rlog.d(TAG, "AudioRecord release failed during encode cleanup", t) }
-            try { encoder.stop() } catch (t: Throwable) { Rlog.d(TAG, "Encoder stop failed during encode cleanup", t) }
-            try { encoder.release() } catch (t: Throwable) { Rlog.d(TAG, "Encoder release failed during encode cleanup", t) }
-            Rlog.d(TAG, "Encode thread cleanup complete before audio mode restore: callStopped=${callStopped.get()} genMismatch=${callGeneration.get() != gen}")
-            SipAudioModeRestorer.restoreAfterImsCall(
+            SipUplinkAudioCleanup.cleanup(
                 logTag = TAG,
                 context = ctxt,
-                reason = "encode thread cleanup",
-                previousMode = prevAudioMode,
+                audioRecord = audioRecord,
+                encoder = encoder,
+                callStopped = callStopped,
+                callGeneration = callGeneration,
+                generation = gen,
+                totalPacketsSent = rtpSequenceNumber.get(),
+                previousAudioMode = prevAudioMode,
             )
         }
     }
