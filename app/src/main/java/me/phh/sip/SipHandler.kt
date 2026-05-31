@@ -4035,18 +4035,10 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
             Rlog.w(TAG, "sendDtmf without current call")
             return
         }
-        val event = when (c.uppercaseChar()) {
-            '0','1','2','3','4','5','6','7','8','9' -> c.digitToInt()
-            '*' -> 10
-            '#' -> 11
-            'A' -> 12
-            'B' -> 13
-            'C' -> 14
-            'D' -> 15
-            else -> {
-                Rlog.w(TAG, "Ignoring unsupported DTMF char: $c")
-                return
-            }
+        val event = SipDtmfEventMapper.eventForChar(c)
+        if (event == null) {
+            Rlog.w(TAG, "Ignoring unsupported DTMF char: $c")
+            return
         }
 
         thread {
@@ -4061,14 +4053,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                     dtmfTimestampSamples = rtpDtmfTimestampSamples,
                 )
                 val durationSamples = (durationMs.coerceAtLeast(160) * dtmfCall.audioCodec.sampleRate) / 1000
-                val steps = listOf(
-                    durationSamples / 4,
-                    durationSamples / 2,
-                    durationSamples,
-                    durationSamples,
-                    durationSamples,
-                    durationSamples,
-                )
+                val steps = SipDtmfEventMapper.durationSteps(durationSamples)
                 Rlog.d(TAG, "Sending RTP DTMF event=$event char=$c payload=${dtmfCall.dtmfTrack} durationMs=$durationMs timestamp=$timestamp sequenceBase=${rtpSequenceNumber.get()} remote=${dtmfCall.rtpRemoteAddr}:${dtmfCall.rtpRemotePort}")
                 for ((index, duration) in steps.withIndex()) {
                     val sendCall = currentCall ?: return@thread
