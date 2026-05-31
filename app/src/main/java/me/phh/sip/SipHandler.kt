@@ -3863,45 +3863,15 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
             // lets AudioTrack underrun and sounds like heavy stutter. Keep a tiny
             // 20ms playout loop and feed silence when the decoder has no PCM ready.
             val downlinkPlayoutBuffers = SipDownlinkPcmPlayoutBuffers.create(audioCodec)
-            val downlinkFrameBytes = downlinkPlayoutBuffers.frameBytes
-            val downlinkSilenceFrame = downlinkPlayoutBuffers.silenceFrame
-            val downlinkPcmQueue = downlinkPlayoutBuffers.pcmQueue
-            val downlinkPlayoutRunning = downlinkPlayoutBuffers.running
-            val downlinkPlayoutThread = thread(name = "PhhDownlinkPcmPlayout") {
-                var fillerFrames = 0
-                var nextWriteAtMs = android.os.SystemClock.elapsedRealtime() + 60L
-                Rlog.d(TAG, "Downlink PCM playout started: frameBytes=$downlinkFrameBytes codec=${audioCodec.name}/${audioCodec.sampleRate} gen=$gen")
-                try {
-                    while (downlinkPlayoutRunning.get() && !callStopped.get() && callGeneration.get() == gen) {
-                        val now = android.os.SystemClock.elapsedRealtime()
-                        val sleepMs = nextWriteAtMs - now
-                        if (sleepMs > 0L) Thread.sleep(sleepMs.coerceAtMost(40L))
-            
-                        val pcm = downlinkPcmQueue.poll() ?: downlinkSilenceFrame
-                        if (pcm === downlinkSilenceFrame) {
-                            fillerFrames++
-                            if (fillerFrames == 1 || fillerFrames % 50 == 0) {
-                                Rlog.d(TAG, "Downlink PCM playout filler frames=$fillerFrames queued=${downlinkPcmQueue.size} gen=$gen")
-                            }
-                        } else if (fillerFrames > 0) {
-                            Rlog.d(TAG, "Downlink PCM playout recovered after fillerFrames=$fillerFrames queued=${downlinkPcmQueue.size} gen=$gen")
-                            fillerFrames = 0
-                        }
-            
-                        audioTrack.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
-                        nextWriteAtMs += 20L
-                        val afterWriteMs = android.os.SystemClock.elapsedRealtime()
-                        if (afterWriteMs - nextWriteAtMs > 200L) {
-                            nextWriteAtMs = afterWriteMs + 20L
-                        }
-                    }
-                } catch (_: InterruptedException) {
-                    // Normal during call teardown.
-                } catch (t: Throwable) {
-                    Rlog.w(TAG, "Downlink PCM playout failed", t)
-                }
-                Rlog.d(TAG, "Downlink PCM playout exiting: running=${downlinkPlayoutRunning.get()} callStopped=${callStopped.get()} genMismatch=${callGeneration.get() != gen} queued=${downlinkPcmQueue.size}")
-            }
+            val downlinkPlayoutThread = SipDownlinkPcmPlayout.start(
+                logTag = TAG,
+                audioTrack = audioTrack,
+                audioCodec = audioCodec,
+                buffers = downlinkPlayoutBuffers,
+                callStopped = callStopped,
+                callGeneration = callGeneration,
+                generation = gen,
+            )
 
             val decoder = SipAudioCodecFactory.createStartedDecoder(
                 audioCodec = audioCodec,
@@ -3982,16 +3952,16 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                     outBuf.position(outBufInfo.offset)
                     outBuf.limit(outBufInfo.offset + outBufInfo.size)
                     outBuf.get(pcm)
-                    if (!downlinkPcmQueue.offer(pcm)) {
-                        downlinkPcmQueue.poll()
-                        if (!downlinkPcmQueue.offer(pcm)) {
+                    if (!downlinkPlayoutBuffers.pcmQueue.offer(pcm)) {
+                        downlinkPlayoutBuffers.pcmQueue.poll()
+                        if (!downlinkPlayoutBuffers.pcmQueue.offer(pcm)) {
                             Rlog.w(TAG, "Downlink PCM queue still full after dropping oldest frame")
                         }
                     }
                     decoder.releaseOutputBuffer(outBufIndex, false)
                 }
             }
-            downlinkPlayoutRunning.set(false)
+            downlinkPlayoutBuffers.running.set(false)
             try { downlinkPlayoutThread.interrupt() } catch (t: Throwable) { Rlog.d(TAG, "Downlink playout interrupt failed during decode cleanup", t) }
             try { audioTrack.stop() } catch (t: Throwable) { Rlog.d(TAG, "AudioTrack stop failed during decode cleanup", t) }
             try { audioTrack.release() } catch (t: Throwable) { Rlog.d(TAG, "AudioTrack release failed during decode cleanup", t) }
