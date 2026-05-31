@@ -4028,25 +4028,6 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         }
     }
 
-    private fun allocateDtmfTimestampSamples(audioCodec: NegotiatedAudioCodec, durationMs: Int): Int {
-        val safeDurationMs = durationMs.coerceAtLeast(160)
-        // One telephone-event uses one fixed timestamp for all repeats, but the
-        // next digit must not reuse that timestamp. Keep at least one event
-        // duration plus 40ms between synthetic timestamps when media is stalled.
-        val minimumStepSamples = ((safeDurationMs + 40) * audioCodec.sampleRate) / 1000
-        while (true) {
-            val mediaTimestamp = rtpTimestampSamples.get()
-            val previousDtmfTimestamp = rtpDtmfTimestampSamples.get()
-            val candidate = if (previousDtmfTimestamp <= 0) {
-                mediaTimestamp.coerceAtLeast(audioCodec.rtpTimestampStep)
-            } else {
-                maxOf(mediaTimestamp, previousDtmfTimestamp + minimumStepSamples)
-            }
-            if (rtpDtmfTimestampSamples.compareAndSet(previousDtmfTimestamp, candidate)) {
-                return candidate
-            }
-        }
-    }
 
     fun sendDtmf(c: Char, durationMs: Int = 160) {
         val call = currentCall
@@ -4073,7 +4054,12 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 // RFC 4733 telephone-event. Keep one RTP timestamp for the whole event,
                 // increase duration, and repeat the final packet with the E bit set.
                 val dtmfCall = currentCall ?: call
-                val timestamp = allocateDtmfTimestampSamples(dtmfCall.audioCodec, durationMs)
+                val timestamp = SipDtmfTimestampAllocator.allocate(
+                    audioCodec = dtmfCall.audioCodec,
+                    durationMs = durationMs,
+                    mediaTimestampSamples = rtpTimestampSamples,
+                    dtmfTimestampSamples = rtpDtmfTimestampSamples,
+                )
                 val durationSamples = (durationMs.coerceAtLeast(160) * dtmfCall.audioCodec.sampleRate) / 1000
                 val steps = listOf(
                     durationSamples / 4,
