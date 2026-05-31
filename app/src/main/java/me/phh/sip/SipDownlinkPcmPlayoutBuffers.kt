@@ -13,7 +13,7 @@ data class SipDownlinkPcmPlayoutBuffers(
     companion object {
         fun create(
             audioCodec: NegotiatedAudioCodec,
-            queueCapacity: Int = 8,
+            queueCapacity: Int = 16,
             minimumFrameBytes: Int = 320,
         ): SipDownlinkPcmPlayoutBuffers {
             val frameBytes = ((audioCodec.sampleRate / 50) * audioCodec.channelCount * 2)
