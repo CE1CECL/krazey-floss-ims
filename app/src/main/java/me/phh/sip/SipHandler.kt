@@ -3711,6 +3711,19 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
             )
 
             var receivedCount = 0
+            val downlinkRtpJitter = SipDownlinkRtpJitterBuffer(
+                logTag = TAG,
+                audioCodec = audioCodec,
+            )
+            val downlinkRtpJitterThread = SipDownlinkRtpJitterDecoder.start(
+                logTag = TAG,
+                jitterBuffer = downlinkRtpJitter,
+                decoder = decoder,
+                pcmQueue = downlinkPlayoutBuffers.pcmQueue,
+                callStopped = callStopped,
+                callGeneration = callGeneration,
+                generation = gen,
+            )
             while(true) {
                 if (callStopped.get() || callGeneration.get() != gen) break
                 val dgramBuf = ByteArray(2048)
@@ -3764,12 +3777,25 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
 
                 if (amrFrame == null) continue
 
-                SipDownlinkAudioDecoder.queueCodecFrameAndDrainPcm(
-                    logTag = TAG,
-                    decoder = decoder,
+                downlinkRtpJitter.push(
+                    packet = dgramBuf,
+                    packetLength = dgram.length,
+                    payloadType = pt,
+                    frameType = amrFrame.ft,
                     codecFrame = amrFrame.codecFrame,
-                    pcmQueue = downlinkPlayoutBuffers.pcmQueue,
+                    packetCount = receivedCount,
                 )
+            }
+            downlinkRtpJitter.stop()
+            try {
+                downlinkRtpJitterThread.interrupt()
+            } catch (t: Throwable) {
+                Rlog.d(TAG, "Downlink RTP jitter interrupt failed during decode cleanup", t)
+            }
+            try {
+                downlinkRtpJitterThread.join(200L)
+            } catch (t: Throwable) {
+                Rlog.d(TAG, "Downlink RTP jitter join failed during decode cleanup", t)
             }
             SipDownlinkAudioCleanup.cleanup(
                 logTag = TAG,
