@@ -4058,24 +4058,15 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 for ((index, duration) in steps.withIndex()) {
                     val sendCall = currentCall ?: return@thread
                     val sequenceNumber = rtpSequenceNumber.getAndIncrement()
-                    val marker = if (index == 0) 0x80 else 0x00
-                    val end = if (index >= 3) 0x80 else 0x00
-                    val volume = 10
-                    val rtpHeader = byteArrayOf(
-                        0x80.toByte(),
-                        (marker or sendCall.dtmfTrack).toByte(),
-                        (sequenceNumber shr 8).toByte(), (sequenceNumber and 0xff).toByte(),
-                        (timestamp shr 24).toByte(), ((timestamp shr 16) and 0xff).toByte(),
-                        ((timestamp shr 8) and 0xff).toByte(), (timestamp and 0xff).toByte(),
-                        0x03, 0x00, 0xd2.toByte(), 0x00,
+                    val buf = SipDtmfRtpPacketBuilder.buildTelephoneEventPacket(
+                        payloadType = sendCall.dtmfTrack,
+                        sequenceNumber = sequenceNumber,
+                        timestamp = timestamp,
+                        event = event,
+                        duration = duration,
+                        repeatIndex = index,
                     )
-                    val payload = byteArrayOf(
-                        event.toByte(),
-                        (end or volume).toByte(),
-                        (duration shr 8).toByte(), (duration and 0xff).toByte(),
-                    )
-                    val buf = rtpHeader + payload
-                    if (!sendRtpPacket(sendCall.rtpSocket, buf, sendCall.rtpRemoteAddr, sendCall.rtpRemotePort, "RTP DTMF event=$event char=$c seq=$sequenceNumber ts=$timestamp duration=$duration end=${end != 0}")) return@thread
+                    if (!sendRtpPacket(sendCall.rtpSocket, buf, sendCall.rtpRemoteAddr, sendCall.rtpRemotePort, "RTP DTMF event=$event char=$c seq=$sequenceNumber ts=$timestamp duration=$duration end=${index >= 3}")) return@thread
                     Thread.sleep(20)
                 }
             } catch (t: Throwable) {
