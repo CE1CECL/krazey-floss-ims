@@ -761,6 +761,16 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
             )
             return true
         }
+
+        val isViIndia = mcc == "404" && normalizedMnc == "30"
+        if (isViIndia && normalizedNumber in setOf("198", "199")) {
+            Rlog.w(
+                TAG,
+                "Forcing CSFB for Vi India customer-care short code rejected by IMS routing: " +
+                    "raw=$number normalized=$normalizedNumber",
+            )
+            return true
+        }
         return false
     }
 
