@@ -2219,37 +2219,15 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 )) return@thread
             }
 
-            // DANGER: Don't open the mic before the user acknowledged opening the call!
-
-            val minBufferSize = SipAudioRecordFactory.minBufferSize(audioCodec)
-            if (minBufferSize <= 0) {
-                Rlog.e(TAG, "AudioRecord.getMinBufferSize failed: $minBufferSize")
-                try { encoder.stop() } catch (_: Throwable) { }
-                try { encoder.release() } catch (_: Throwable) { }
-                return@thread
-            }
-            val audioRecord = try {
-                SipAudioRecordFactory.createVoiceCommunicationRecord(bufferSize = minBufferSize, audioCodec = audioCodec)
-            } catch (t: Throwable) {
-                Rlog.e(TAG, "AudioRecord creation failed with bufferSize=$minBufferSize", t)
-                try { encoder.stop() } catch (_: Throwable) { }
-                try { encoder.release() } catch (_: Throwable) { }
-                return@thread
-            }
-            Rlog.d(TAG, "AudioRecord created with minBufferSize=$minBufferSize, state=${audioRecord.state}")
-
-            val audioManager = SipAudioRecordRouting.pinBuiltinMic(
+            val capture = SipUplinkAudioCaptureStarter.start(
                 logTag = TAG,
                 context = ctxt,
-                audioRecord = audioRecord,
-            )
-
-            val prevAudioMode = SipAudioRecordStarter.startForImsUplink(
-                logTag = TAG,
-                audioManager = audioManager,
-                audioRecord = audioRecord,
+                audioCodec = audioCodec,
                 encoder = encoder,
             ) ?: return@thread
+            val audioRecord = capture.audioRecord
+            val minBufferSize = capture.bufferSize
+            val prevAudioMode = capture.previousAudioMode
             Rlog.d(
                 TAG,
                 "IMS uplink gain q8=$imsUplinkGainQ8 ${SipUplinkGain.propertySummary()}",
