@@ -29,10 +29,6 @@ class SipHandler(
     companion object {
         private const val TAG = "PHH SipHandler"
 
-        private const val UPLINK_GAIN_PERSIST_PROPERTY = "persist.sys.phhims.uplink_gain_q8"
-        private const val UPLINK_GAIN_RO_PROPERTY = "ro.phhims.uplink_gain_q8"
-        private const val UPLINK_GAIN_UNSET_Q8 = 0
-        private const val UPLINK_GAIN_UNITY_Q8 = 256
         private const val INCOMING_ACCEPT_IMS_ACCESS_CHANGE_GUARD_MS = 1_200L
     }
 
@@ -66,48 +62,9 @@ class SipHandler(
     }
 
     private val imsUplinkGainQ8: Int by lazy {
-        val persistGain = android.os.SystemProperties.getInt(
-            UPLINK_GAIN_PERSIST_PROPERTY,
-            UPLINK_GAIN_UNSET_Q8,
-        )
-
-        val rawGain = if (persistGain != UPLINK_GAIN_UNSET_Q8) {
-            persistGain
-        } else {
-            android.os.SystemProperties.getInt(
-                UPLINK_GAIN_RO_PROPERTY,
-                UPLINK_GAIN_UNITY_Q8,
-            )
-        }
-
-        // Keep the property safe:
-        // 128 = -6.0 dB, 256 = unity, 512 = +6.0 dB, 768 = +9.5 dB.
-        rawGain.coerceIn(128, 768)
+        SipUplinkGain.configuredGainQ8()
     }
 
-    private fun applyImsUplinkGainInPlace(buffer: ByteArray, size: Int) {
-        val gainQ8 = imsUplinkGainQ8
-        if (gainQ8 == UPLINK_GAIN_UNITY_Q8 || size < 2) {
-            return
-        }
-
-        var i = 0
-        val end = size and -2
-
-        while (i < end) {
-            val sample = (buffer[i].toInt() and 0xff) or (buffer[i + 1].toInt() shl 8)
-            val boosted = (sample * gainQ8) / UPLINK_GAIN_UNITY_Q8
-            val clipped = boosted.coerceIn(
-                Short.MIN_VALUE.toInt(),
-                Short.MAX_VALUE.toInt(),
-            )
-
-            buffer[i] = (clipped and 0xff).toByte()
-            buffer[i + 1] = ((clipped shr 8) and 0xff).toByte()
-
-            i += 2
-        }
-    }
 
 
     private val subscriptionContext = SipSubscriptionContext.resolve(
@@ -2401,8 +2358,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
             Rlog.d(TAG, "AudioRecord started, state=${audioRecord.recordingState} audioMode=${audioManager.mode} (was $prevAudioMode) preferredDevice=${audioRecord.preferredDevice?.type}")
             Rlog.d(
                 TAG,
-                "IMS uplink gain q8=$imsUplinkGainQ8 " +
-                    "persist=$UPLINK_GAIN_PERSIST_PROPERTY ro=$UPLINK_GAIN_RO_PROPERTY",
+                "IMS uplink gain q8=$imsUplinkGainQ8 ${SipUplinkGain.propertySummary()}",
             )
 
             var firstPacket = true
@@ -2423,7 +2379,11 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 val inBuf = encoder.getInputBuffer(inBufIdx)!!
                 inBuf.clear()
                 if (nRead > 0) {
-                    applyImsUplinkGainInPlace(buffer, nRead)
+                    SipUplinkGain.applyInPlace(
+                        buffer = buffer,
+                        size = nRead,
+                        gainQ8 = imsUplinkGainQ8,
+                    )
                 }
                 inBuf.put(buffer, 0, nRead)
 
