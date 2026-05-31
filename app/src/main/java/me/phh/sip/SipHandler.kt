@@ -404,46 +404,13 @@ private val smsHandler = SipSmsHandler(
         callStarted.set(false)
         threadsStarted.set(false)
 
-        restoreAudioModeAfterImsCall("stop runtime: $reason")
-        runDeferredImsReconnectAfterCallTerminalState(reason)
-    }
-
-    private fun restoreAudioModeAfterImsCall(reason: String, previousMode: Int? = null) {
-        val audioManager = try {
-            ctxt.getSystemService(AudioManager::class.java)
-        } catch (t: Throwable) {
-            Rlog.d(TAG, "Audio mode restore skipped; AudioManager unavailable: $reason", t)
-            return
-        }
-
-        val currentMode = audioManager.mode
-        val wantedMode = when (previousMode ?: currentMode) {
-            AudioManager.MODE_IN_CALL,
-            AudioManager.MODE_IN_COMMUNICATION,
-            AudioManager.MODE_RINGTONE -> AudioManager.MODE_NORMAL
-            else -> previousMode ?: currentMode
-        }
-
-        if (currentMode == wantedMode) {
-            Rlog.d(TAG, "Audio mode restore not needed: reason=$reason currentMode=$currentMode previousMode=$previousMode")
-            return
-        }
-
-        Rlog.d(
-            TAG,
-            "Restoring audio mode after IMS call: reason=$reason " +
-                "currentMode=$currentMode previousMode=$previousMode wantedMode=$wantedMode",
+        SipAudioModeRestorer.restoreAfterImsCall(
+            logTag = TAG,
+            context = ctxt,
+            reason = "stop runtime: $reason",
+            previousMode = null,
         )
-        try {
-            audioManager.clearCommunicationDevice()
-        } catch (t: Throwable) {
-            Rlog.d(TAG, "clearCommunicationDevice failed during IMS audio restore: $reason", t)
-        }
-        try {
-            audioManager.mode = wantedMode
-        } catch (t: Throwable) {
-            Rlog.d(TAG, "Setting audio mode failed during IMS audio restore: $reason", t)
-        }
+        runDeferredImsReconnectAfterCallTerminalState(reason)
     }
 
     private fun writeSipBytes(writer: OutputStream, bytes: ByteArray, label: String): Boolean {
@@ -2471,7 +2438,12 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
             try { encoder.stop() } catch (t: Throwable) { Rlog.d(TAG, "Encoder stop failed during encode cleanup", t) }
             try { encoder.release() } catch (t: Throwable) { Rlog.d(TAG, "Encoder release failed during encode cleanup", t) }
             Rlog.d(TAG, "Encode thread cleanup complete before audio mode restore: callStopped=${callStopped.get()} genMismatch=${callGeneration.get() != gen}")
-            restoreAudioModeAfterImsCall("encode thread cleanup", previousMode = prevAudioMode)
+            SipAudioModeRestorer.restoreAfterImsCall(
+                logTag = TAG,
+                context = ctxt,
+                reason = "encode thread cleanup",
+                previousMode = prevAudioMode,
+            )
         }
     }
 
@@ -4046,7 +4018,12 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
             try { audioTrack.release() } catch (t: Throwable) { Rlog.d(TAG, "AudioTrack release failed during decode cleanup", t) }
             try { decoder.stop() } catch (t: Throwable) { Rlog.d(TAG, "Decoder stop failed during decode cleanup", t) }
             try { decoder.release() } catch (t: Throwable) { Rlog.d(TAG, "Decoder release failed during decode cleanup", t) }
-            restoreAudioModeAfterImsCall("decode thread cleanup", previousMode = prevDecodeAudioMode)
+            SipAudioModeRestorer.restoreAfterImsCall(
+                logTag = TAG,
+                context = ctxt,
+                reason = "decode thread cleanup",
+                previousMode = prevDecodeAudioMode,
+            )
             Rlog.d(TAG, "Decode thread cleanup complete: callStopped=${callStopped.get()} genMismatch=${callGeneration.get() != gen} received=$receivedCount")
         }
     }
