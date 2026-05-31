@@ -3926,40 +3926,12 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
 
                 if (amrFrame == null) continue
 
-                val inBufIndex = decoder.dequeueInputBuffer(-1)
-                val inBuf = decoder.getInputBuffer(inBufIndex)!!
-                val data = amrFrame.codecFrame
-                inBuf.clear()
-                inBuf.put(data)
-                decoder.queueInputBuffer(inBufIndex, 0, data.size, 0, 0)
-
-                // Drain decoder output.  Some AMR modes do not produce an output buffer
-                // immediately with a zero-timeout dequeue on all codecs, so give it a tiny
-                // real-time budget for the first buffer and then drain anything else.
-                val outBufInfo = MediaCodec.BufferInfo()
-                var drainTimeoutUs = 10_000L
-                while (true) {
-                    val outBufIndex = decoder.dequeueOutputBuffer(outBufInfo, drainTimeoutUs)
-                    drainTimeoutUs = 0L
-                    if (outBufIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                        Rlog.d(TAG, "Decoder output format changed")
-                        continue
-                    }
-                    if (outBufIndex < 0) break
-
-                    val outBuf = decoder.getOutputBuffer(outBufIndex)!!
-                    val pcm = ByteArray(outBufInfo.size)
-                    outBuf.position(outBufInfo.offset)
-                    outBuf.limit(outBufInfo.offset + outBufInfo.size)
-                    outBuf.get(pcm)
-                    if (!downlinkPlayoutBuffers.pcmQueue.offer(pcm)) {
-                        downlinkPlayoutBuffers.pcmQueue.poll()
-                        if (!downlinkPlayoutBuffers.pcmQueue.offer(pcm)) {
-                            Rlog.w(TAG, "Downlink PCM queue still full after dropping oldest frame")
-                        }
-                    }
-                    decoder.releaseOutputBuffer(outBufIndex, false)
-                }
+                SipDownlinkAudioDecoder.queueCodecFrameAndDrainPcm(
+                    logTag = TAG,
+                    decoder = decoder,
+                    codecFrame = amrFrame.codecFrame,
+                    pcmQueue = downlinkPlayoutBuffers.pcmQueue,
+                )
             }
             SipDownlinkAudioCleanup.cleanup(
                 logTag = TAG,
