@@ -905,7 +905,7 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
                         "pt=${active.amrTrack}/${active.dtmfTrack} generation=${callGeneration.get()}",
                 )
                 callDecodeThread()
-                callEncodeThread()
+                callEncodeThread(callSnapshot = active)
             } else {
                 Rlog.w(TAG, "Outgoing media restart skipped; threads already restarted")
             }
@@ -1698,7 +1698,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
             if (threadsStarted.compareAndSet(false, true)) {
                 Rlog.d(TAG, "Starting incoming media threads from final ACK")
                 callDecodeThread()
-                callEncodeThread()
+                callEncodeThread(callSnapshot = call)
             } else {
                 Rlog.d(TAG, "Incoming media threads already started before final ACK")
             }
@@ -2147,15 +2147,21 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
     fun callEncodeThread(
         incomingMicStartDelayMs: Long = 0L,
         reason: String = "default",
+        callSnapshot: Call? = null,
     ) {
-        val call = currentCall!!
+        val call = callSnapshot ?: currentCall
+        if (call == null) {
+            Rlog.w(TAG, "callEncodeThread: no currentCall; not starting encoder reason=$reason")
+            return
+        }
         val audioCodec = call.audioCodec
+        val callId = call.callIdOrEmpty()
         val gen = callGeneration.get()
         thread {
             rtpSequenceNumber.set(0)
             rtpTimestampSamples.set(0)
             rtpDtmfTimestampSamples.set(0)
-            Rlog.d(TAG, "Encode thread started: codec=${audioCodec.name}/${audioCodec.sampleRate} amrTrack=${call.amrTrack} remote=${call.rtpRemoteAddr}:${call.rtpRemotePort} gen=$gen")
+            Rlog.d(TAG, "Encode thread started: codec=${audioCodec.name}/${audioCodec.sampleRate} callId=$callId amrTrack=${call.amrTrack} remote=${call.rtpRemoteAddr}:${call.rtpRemotePort} gen=$gen")
             val encoder = SipAudioCodecFactory.createStartedEncoder(
                 audioCodec = audioCodec,
             )
@@ -2170,7 +2176,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 nextTimestamp = { rtpTimestampSamples.getAndAdd(audioCodec.rtpTimestampStep) },
                 totalPacketsSent = { rtpSequenceNumber.get() },
                 sendPacket = { sequenceNumber, timestamp ->
-                    val sendCall = currentCall ?: call
+                    val sendCall = currentCall?.takeIf { it.callIdOrEmpty() == callId } ?: call
                     SipUplinkSilenceRtpSender.sendNoDataPacket(
                         logTag = TAG,
                         audioCodec = audioCodec,
@@ -2199,7 +2205,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                     nextSequenceNumber = { rtpSequenceNumber.getAndIncrement() },
                     nextTimestamp = { rtpTimestampSamples.getAndAdd(audioCodec.rtpTimestampStep) },
                     sendPacket = { sequenceNumber, timestamp ->
-                        val sendCall = currentCall ?: call
+                        val sendCall = currentCall?.takeIf { it.callIdOrEmpty() == callId } ?: call
                         SipUplinkSilenceRtpSender.sendNoDataPacket(
                             logTag = TAG,
                             audioCodec = audioCodec,
@@ -2500,6 +2506,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 callEncodeThread(
                     incomingMicStartDelayMs = 250L,
                     reason = "incoming ACK audio route settle",
+                    callSnapshot = call,
                 )
             } else {
                 Rlog.d(TAG, "Incoming media threads already started while accepting call")
@@ -4032,6 +4039,18 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         if (isInDialogInvite) {
             return handleInDialogInvite(request, existingCall!!, incomingResponseWriter)
         }
+        if (existingCall != null && !existingCall.outgoing && existingCall.callIdOrEmpty() == incomingCallId) {
+            val incomingCseq = request.headers["cseq"]?.getOrNull(0).orEmpty()
+            Rlog.w(
+                TAG,
+                "Refreshing duplicate incoming INVITE for existing incoming dialog: " +
+                    "callId=$incomingCallId cseq=$incomingCseq",
+            )
+            // The original pending incoming dialog already notified Telecom.
+            // Do not create another ImsCallSession for the same network Call-ID;
+            // return 100 so parseMessage answers the retransmit on this flow.
+            return 100
+        }
 
         val activeCallId = existingCall?.callHeaders?.get("call-id")?.getOrNull(0)
         if (existingCall != null && activeCallId != incomingCallId) {
@@ -4330,8 +4349,9 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 remoteContact = extractDestinationFromContact(request.headers["contact"]!![0]),
                 incomingResponseWriter = incomingResponseWriter,
             )
-            val installedIncomingCallId = currentCall?.callIdOrEmpty().orEmpty()
-            if (wasRecentlyTerminatedIncomingCall(incomingCallId) || installedIncomingCallId != incomingCallId) {
+            val installedIncomingCall = currentCall
+            val installedIncomingCallId = installedIncomingCall?.callIdOrEmpty().orEmpty()
+            if (wasRecentlyTerminatedIncomingCall(incomingCallId) || installedIncomingCallId != incomingCallId || installedIncomingCall !== currentCall) {
                 Rlog.w(TAG, "Aborting incoming ringing because Call-ID was terminated during setup: callId=$incomingCallId installed=$installedIncomingCallId")
                 if (installedIncomingCallId == incomingCallId) {
                     currentCall = null
