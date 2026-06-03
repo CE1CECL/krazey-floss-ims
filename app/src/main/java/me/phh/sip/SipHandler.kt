@@ -4068,9 +4068,9 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         if (isInDialogInvite) {
             return handleInDialogInvite(request, existingCall!!, incomingResponseWriter)
         }
-                if (existingCall != null && !existingCall.outgoing && existingCall.callIdOrEmpty() == incomingCallId) {
+        if (existingCall != null && !existingCall.outgoing && existingCall.callIdOrEmpty() == incomingCallId) {
             val incomingCseq = request.headers["cseq"]?.getOrNull(0).orEmpty()
-            val duplicateAnswered = incomingFinalResponseSent.get() || incomingAcceptedAwaitingAck.get()
+            val duplicateAnswered = incomingFinalResponseSent.get() || incomingAcceptedAwaitingAck.get() || callStarted.get()
             val refreshedHeaders = responseHeadersFromRequest(
                 request = request,
                 toOverride = existingCall.callHeaders["to"],
@@ -4090,14 +4090,27 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
             )
 
             if (duplicateAnswered) {
-                val duplicateFinalBody = completeIncomingPreconditionAnswerSdp(refreshedCall.sdp, incomingCallId)
-                val duplicateFinalCall = if (!duplicateFinalBody.contentEquals(refreshedCall.sdp)) {
+                val duplicateOmitFinalSdp = refreshedCall.hasEarlyMedia
+                val duplicateFinalBody = if (!duplicateOmitFinalSdp) {
+                    completeIncomingPreconditionAnswerSdp(refreshedCall.sdp, incomingCallId)
+                } else {
+                    ByteArray(0)
+                }
+                val duplicateFinalCall = if (!duplicateOmitFinalSdp && !duplicateFinalBody.contentEquals(refreshedCall.sdp)) {
                     refreshedCall.copy(sdp = duplicateFinalBody)
                 } else {
                     refreshedCall
                 }
                 currentCall = duplicateFinalCall
 
+                val duplicateFinalSdpHeaders = if (!duplicateOmitFinalSdp) {
+                    (
+                        "Content-Type: application/sdp\n" +
+                            "Content-Length: ${duplicateFinalBody.size}\n"
+                    ).toSipHeadersMap()
+                } else {
+                    "Content-Length: 0".toSipHeadersMap()
+                }
                 val duplicateFinalHeaders =
                     duplicateFinalCall.callHeaders -
                         "rseq" -
@@ -4105,12 +4118,11 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                         "p-access-network-info" -
                         "content-type" -
                         "content-length" +
-                        """
-                        Session-Expires: 1800;refresher=uas
-                        Contact: ${duplicateFinalCall.callHeaders["contact"]!!.first()}
-                        Content-Type: application/sdp
-                        Content-Length: ${duplicateFinalBody.size}
-                        """.toSipHeadersMap()
+                        (
+                            "Session-Expires: 1800;refresher=uas\n" +
+                                "Contact: ${duplicateFinalCall.callHeaders["contact"]!!.first()}\n"
+                        ).toSipHeadersMap() +
+                        duplicateFinalSdpHeaders
 
                 val duplicateFinalResponse = SipResponse(
                     statusCode = 200,
