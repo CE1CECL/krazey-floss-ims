@@ -190,6 +190,11 @@ class SipHandler(
         label = "terminated incoming",
         ttlMs = 120_000L,
     )
+    private val pendingIncomingSetupCallIds = RecentCallIdCache(
+        tag = TAG,
+        label = "pending incoming setup",
+        ttlMs = 15_000L,
+    )
 
     private fun rememberTerminatedIncomingCall(callId: String, reason: String) {
         terminatedIncomingCallIds.remember(callId, "duplicate INVITE guard: $reason")
@@ -676,6 +681,7 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
         incomingAcceptedAwaitingAck.set(false)
         incomingHangupAfterAck.set(false)
         terminatedIncomingCallIds.clear()
+        pendingIncomingSetupCallIds.clear()
         currentCall = null
         clearPendingOutgoingInvite(closeRtpSocket = true, reason = "IMS reconnect")
         callGeneration.incrementAndGet()
@@ -4449,16 +4455,36 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
 
         val activeCallId = existingCall?.callHeaders?.get("call-id")?.getOrNull(0)
         if (existingCall != null && activeCallId != incomingCallId) {
-            val activeDirection = if (existingCall.outgoing) "outgoing" else "incoming"
             val incomingCseq = request.headers["cseq"]?.getOrNull(0).orEmpty()
-            Rlog.w(
-                TAG,
-                "Rejecting second incoming INVITE while busy: " +
-                    "callId=$incomingCallId cseq=$incomingCseq " +
-                    "activeCallId=$activeCallId activeDirection=$activeDirection"
-            )
-            rememberTerminatedIncomingCall(incomingCallId, "busy reject")
-            return 486
+            val replacingLocallyEndedPreAckIncoming =
+                !existingCall.outgoing &&
+                    incomingHangupAfterAck.get() &&
+                    !callStarted.get() &&
+                    (incomingFinalResponseSent.get() || incomingAcceptedAwaitingAck.get())
+
+            if (replacingLocallyEndedPreAckIncoming) {
+                Rlog.w(
+                    TAG,
+                    "Dropping locally-ended accepted pre-ACK incoming dialog before fresh incoming INVITE: " +
+                        "oldCallId=$activeCallId newCallId=$incomingCallId cseq=$incomingCseq",
+                )
+                stopCallRuntime("fresh incoming INVITE after local pre-ACK hangup")
+                incomingFinalResponseSent.set(false)
+                incomingAcceptedAwaitingAck.set(false)
+                incomingHangupAfterAck.set(false)
+                currentCall = null
+                prAckWaitTracker.clearAndNotifyAll()
+            } else {
+                val activeDirection = if (existingCall.outgoing) "outgoing" else "incoming"
+                Rlog.w(
+                    TAG,
+                    "Rejecting second incoming INVITE while busy: " +
+                        "callId=$incomingCallId cseq=$incomingCseq " +
+                        "activeCallId=$activeCallId activeDirection=$activeDirection"
+                )
+                rememberTerminatedIncomingCall(incomingCallId, "busy reject")
+                return 486
+            }
         }
 
         val pendingOutgoingCallId = pendingOutgoingInvite?.callId
@@ -4472,6 +4498,25 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
             )
             rememberTerminatedIncomingCall(incomingCallId, "outgoing pending reject")
             return 486
+        }
+
+        if (existingCall == null) {
+            val incomingCseq = request.headers["cseq"]?.getOrNull(0).orEmpty()
+            val setupAlreadyPending = synchronized(pendingIncomingSetupCallIds) {
+                val seen = pendingIncomingSetupCallIds.contains(incomingCallId)
+                if (!seen) {
+                    pendingIncomingSetupCallIds.remember(incomingCallId, "setup pending")
+                }
+                seen
+            }
+            if (setupAlreadyPending) {
+                Rlog.w(
+                    TAG,
+                    "Duplicate incoming INVITE while incoming setup is pending; " +
+                        "not creating another Telecom call: callId=$incomingCallId cseq=$incomingCseq",
+                )
+                return 100
+            }
         }
 
         callStopped.set(false)
@@ -4666,12 +4711,25 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 ?.lowercase()
                 ?.takeIf { it == "udp" || it == "tcp" }
                 ?: SipContactHeaders.transport(socket)
-            val dialogContact = SipContactHeaders.mmtelContact(
-                userPart = owner,
-                localEndpoint = local,
-                transport = incomingDialogTransport,
-                sipInstance = SipContactHeaders.sipInstanceFromImei(imei),
-            )
+            val minimalIncomingDialogContact = "<sip:$owner@$local;transport=$incomingDialogTransport>"
+            val useMinimalIncomingDialogContact =
+                android.os.SystemProperties.getBoolean("persist.phh.ims.minimal_incoming_dialog_contact", false) ||
+                    (mcc == "405" && (mnc.toIntOrNull() ?: -1) in 840..874)
+            val dialogContact = if (useMinimalIncomingDialogContact) {
+                Rlog.w(
+                    TAG,
+                    "Using minimal incoming dialog Contact: " +
+                        "callId=$incomingCallId transport=$incomingDialogTransport mccmnc=$mcc$mnc",
+                )
+                minimalIncomingDialogContact
+            } else {
+                SipContactHeaders.mmtelContact(
+                    userPart = owner,
+                    localEndpoint = local,
+                    transport = incomingDialogTransport,
+                    sipInstance = SipContactHeaders.sipInstanceFromImei(imei),
+                )
+            }
             Rlog.d(
                 TAG,
                 "Incoming dialog Contact: $dialogContact " +
