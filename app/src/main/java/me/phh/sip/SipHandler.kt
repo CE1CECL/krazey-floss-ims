@@ -1586,6 +1586,98 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         }
     }
 
+
+    private fun handleImsNetworkLinkPropertiesChanged(
+        changedNetwork: Network,
+        linkProperties: LinkProperties,
+    ) {
+        Rlog.d(TAG, "IMS network link properties changed ${imsDualSimDebugContext("linkProperties=$linkProperties")}")
+        val pcscfs = getPcscfServers(linkProperties)
+        val newLocalAddr = getImsLocalAddress(linkProperties)
+        val newPcscfAddr = pcscfs.firstOrNull()
+        Rlog.d(TAG, "Got pcscfs $pcscfs local=$newLocalAddr")
+        if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
+            // Switch to this network if it has P-CSCF (could be a different bearer).
+            reconnectIms("P-CSCF appeared after previous no-P-CSCF state", changedNetwork)
+            return
+        }
+
+        if (!this::network.isInitialized) return
+
+        val oldLocalAddr = if (this::localAddr.isInitialized) localAddr else null
+        val oldPcscfAddr = if (this::pcscfAddr.isInitialized) pcscfAddr else null
+        val oldRegistrationTech = imsRegistrationTech
+        val newRegistrationTech = detectRegistrationTech(linkProperties)
+
+        if (pendingCellularReconnectAfterWfcDisable) {
+            val iface = linkProperties.interfaceName ?: ""
+            if (newRegistrationTech == REGISTRATION_TECH_IWLAN || iface.startsWith("ipsec")) {
+                Rlog.w(
+                    TAG,
+                    "Pending WFC-disable cellular reconnect; ignoring still-IWLAN IMS link " +
+                        "interface=$iface tech=${registrationTechName(newRegistrationTech)}",
+                )
+                return
+            }
+            if (newLocalAddr == null || newPcscfAddr == null) {
+                Rlog.w(
+                    TAG,
+                    "Pending WFC-disable cellular reconnect; waiting for usable cellular IMS link " +
+                        "interface=$iface local=$newLocalAddr pcscf=$newPcscfAddr",
+                )
+                return
+            }
+
+            pendingCellularReconnectAfterWfcDisable = false
+            reconnectIms(
+                "cellular IMS link after WFC disabled interface=$iface " +
+                    "tech=${registrationTechName(newRegistrationTech)} local=$newLocalAddr pcscf=$newPcscfAddr",
+                changedNetwork,
+                delayMs = 1_000L,
+            )
+            return
+        }
+
+        val networkChanged = network != changedNetwork
+        val localChanged = oldLocalAddr != null && newLocalAddr != null && oldLocalAddr != newLocalAddr
+        val pcscfChanged = oldPcscfAddr != null && newPcscfAddr != null && oldPcscfAddr != newPcscfAddr
+        val techChanged = imsReady && oldRegistrationTech != newRegistrationTech
+        val techOnlyChanged = techChanged && !networkChanged && !localChanged && !pcscfChanged
+
+        if (techOnlyChanged && hasActiveOrPendingCallForImsReconnectDeferral()) {
+            val deferredReason = "tech-only IMS link changed during call: " +
+                "oldTech=${registrationTechName(oldRegistrationTech)} " +
+                "newTech=${registrationTechName(newRegistrationTech)} " +
+                "interface=${linkProperties.interfaceName}"
+            pendingImsReconnectAfterActiveCallReason = deferredReason
+            noteImsAccessChangeDuringPendingIncomingCall(deferredReason)
+            Rlog.w(
+                TAG,
+                "Deferring tech-only IMS reconnect while SIP call is active or pending: " +
+                    deferredReason + " " + activeOrPendingCallSummaryForReconnectDeferral(),
+            )
+            return
+        }
+
+        if (networkChanged || localChanged || pcscfChanged || techChanged) {
+            reconnectIms(
+                "IMS link changed networkChanged=$networkChanged " +
+                    "localChanged=$localChanged pcscfChanged=$pcscfChanged " +
+                    "techChanged=$techChanged oldLocal=$oldLocalAddr " +
+                    "newLocal=$newLocalAddr oldPcscf=$oldPcscfAddr " +
+                    "newPcscf=$newPcscfAddr oldTech=${registrationTechName(oldRegistrationTech)} " +
+                    "newTech=${registrationTechName(newRegistrationTech)} " +
+                    "interface=${linkProperties.interfaceName}",
+                changedNetwork,
+                delayMs = if (
+                    techChanged &&
+                        oldRegistrationTech == REGISTRATION_TECH_IWLAN &&
+                        newRegistrationTech == REGISTRATION_TECH_LTE
+                ) 6_000L else 1_000L,
+            )
+        }
+    }
+
     fun getVolteNetwork() {
         // TODO add something similar for VoWifi ipsec tunnel?
         Rlog.d(TAG, "Requesting IMS network ${imsDualSimDebugContext()}")
@@ -1631,93 +1723,12 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
 
                 override fun onLinkPropertiesChanged(
                     _network: Network,
-                    linkProperties: LinkProperties
+                    linkProperties: LinkProperties,
                 ) {
-                    Rlog.d(TAG, "IMS network link properties changed ${imsDualSimDebugContext("linkProperties=$linkProperties")}")
-                    val pcscfs = getPcscfServers(linkProperties)
-                    val newLocalAddr = getImsLocalAddress(linkProperties)
-                    val newPcscfAddr = pcscfs.firstOrNull()
-                    Rlog.d(TAG, "Got pcscfs $pcscfs local=$newLocalAddr")
-if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
-                        // Switch to this network if it has P-CSCF (could be a different bearer).
-                        reconnectIms("P-CSCF appeared after previous no-P-CSCF state", _network)
-                        return
-                    }
-
-                    if (!this@SipHandler::network.isInitialized) return
-
-                    val oldLocalAddr = if (this@SipHandler::localAddr.isInitialized) localAddr else null
-                    val oldPcscfAddr = if (this@SipHandler::pcscfAddr.isInitialized) pcscfAddr else null
-                    val oldRegistrationTech = imsRegistrationTech
-                    val newRegistrationTech = detectRegistrationTech(linkProperties)
-
-                    if (pendingCellularReconnectAfterWfcDisable) {
-                        val iface = linkProperties.interfaceName ?: ""
-                        if (newRegistrationTech == REGISTRATION_TECH_IWLAN || iface.startsWith("ipsec")) {
-                            Rlog.w(
-                                TAG,
-                                "Pending WFC-disable cellular reconnect; ignoring still-IWLAN IMS link " +
-                                    "interface=$iface tech=${registrationTechName(newRegistrationTech)}",
-                            )
-                            return
-                        }
-                        if (newLocalAddr == null || newPcscfAddr == null) {
-                            Rlog.w(
-                                TAG,
-                                "Pending WFC-disable cellular reconnect; waiting for usable cellular IMS link " +
-                                    "interface=$iface local=$newLocalAddr pcscf=$newPcscfAddr",
-                            )
-                            return
-                        }
-
-                        pendingCellularReconnectAfterWfcDisable = false
-                        reconnectIms(
-                            "cellular IMS link after WFC disabled interface=$iface " +
-                                "tech=${registrationTechName(newRegistrationTech)} local=$newLocalAddr pcscf=$newPcscfAddr",
-                            _network,
-                            delayMs = 1_000L,
-                        )
-                        return
-                    }
-
-                    val networkChanged = network != _network
-                    val localChanged = oldLocalAddr != null && newLocalAddr != null && oldLocalAddr != newLocalAddr
-                    val pcscfChanged = oldPcscfAddr != null && newPcscfAddr != null && oldPcscfAddr != newPcscfAddr
-                    val techChanged = imsReady && oldRegistrationTech != newRegistrationTech
-                    val techOnlyChanged = techChanged && !networkChanged && !localChanged && !pcscfChanged
-
-                    if (techOnlyChanged && hasActiveOrPendingCallForImsReconnectDeferral()) {
-                        val deferredReason = "tech-only IMS link changed during call: " +
-                            "oldTech=${registrationTechName(oldRegistrationTech)} " +
-                            "newTech=${registrationTechName(newRegistrationTech)} " +
-                            "interface=${linkProperties.interfaceName}"
-                        pendingImsReconnectAfterActiveCallReason = deferredReason
-                        noteImsAccessChangeDuringPendingIncomingCall(deferredReason)
-                        Rlog.w(
-                            TAG,
-                            "Deferring tech-only IMS reconnect while SIP call is active or pending: " +
-                                deferredReason + " " + activeOrPendingCallSummaryForReconnectDeferral(),
-                        )
-                        return
-                    }
-
-                    if (networkChanged || localChanged || pcscfChanged || techChanged) {
-                        reconnectIms(
-                            "IMS link changed networkChanged=$networkChanged " +
-                                "localChanged=$localChanged pcscfChanged=$pcscfChanged " +
-                                "techChanged=$techChanged oldLocal=$oldLocalAddr " +
-                                "newLocal=$newLocalAddr oldPcscf=$oldPcscfAddr " +
-                                "newPcscf=$newPcscfAddr oldTech=${registrationTechName(oldRegistrationTech)} " +
-                                "newTech=${registrationTechName(newRegistrationTech)} " +
-                                "interface=${linkProperties.interfaceName}",
-                            _network,
-                            delayMs = if (
-                                techChanged &&
-                                    oldRegistrationTech == REGISTRATION_TECH_IWLAN &&
-                                    newRegistrationTech == REGISTRATION_TECH_LTE
-                            ) 6_000L else 1_000L,
-                        )
-                    }
+                    handleImsNetworkLinkPropertiesChanged(
+                        changedNetwork = _network,
+                        linkProperties = linkProperties,
+                    )
                 }
 
                 override fun onAvailable(_network: Network) {
