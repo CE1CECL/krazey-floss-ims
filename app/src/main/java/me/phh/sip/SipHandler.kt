@@ -1416,6 +1416,31 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         )
     }
 
+
+    private fun handleAuthenticatedRegisterFailure(
+        regReply: SipMessage,
+        registerRealmDecision: SipRegisterNegotiationPolicy.RegisterRealmDecision,
+        registerChallenge: SipRegisterChallenge,
+        akaResult: SipAkaResult,
+    ) {
+        if (
+            SipRegisterNegotiationPolicy.shouldRetryCanonicalAfterPromoted494(
+                statusCode = (regReply as? SipResponse)?.statusCode,
+                decision = registerRealmDecision,
+                alreadyPreferCanonical = preferCanonicalRegisterRealmAfter494,
+            )
+        ) {
+            retryCanonicalRegisterAfterPromotedRealm494(
+                registerChallenge = registerChallenge,
+                akaResult = akaResult,
+            )
+            return
+        }
+
+        Rlog.w(TAG, "Could not connect, aborting SIP")
+        failConnectAndRetry("Authenticated SIP REGISTER did not return 200")
+    }
+
     fun connect() {
         if (!prepareImsEndpointForConnect()) {
             return
@@ -1480,22 +1505,12 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         Rlog.d(TAG, "Received $regReply")
 
         if (regReply !is SipResponse || regReply.statusCode != 200) {
-            if (
-                SipRegisterNegotiationPolicy.shouldRetryCanonicalAfterPromoted494(
-                    statusCode = (regReply as? SipResponse)?.statusCode,
-                    decision = registerRealmDecision,
-                    alreadyPreferCanonical = preferCanonicalRegisterRealmAfter494,
-                )
-            ) {
-                retryCanonicalRegisterAfterPromotedRealm494(
-                    registerChallenge = registerChallenge,
-                    akaResult = akaResult,
-                )
-                return
-            }
-
-            Rlog.w(TAG, "Could not connect, aborting SIP")
-            failConnectAndRetry("Authenticated SIP REGISTER did not return 200")
+            handleAuthenticatedRegisterFailure(
+                regReply = regReply,
+                registerRealmDecision = registerRealmDecision,
+                registerChallenge = registerChallenge,
+                akaResult = akaResult,
+            )
             return
         }
 
