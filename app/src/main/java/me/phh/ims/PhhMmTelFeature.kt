@@ -68,8 +68,21 @@ private fun ServiceState.isIwlanReadyForPhhIms(): Boolean {
 private fun ServiceState.isReadyForPhhIms(
     registeredPlmn: String? = phhRegisteredPlmnForIms(),
 ): Boolean {
-    return isCellularReadyForPhhIms(registeredPlmn) || isIwlanReadyForPhhIms()
+    val cellularReady = isCellularReadyForPhhIms(registeredPlmn)
+
+    // IWLAN can report registered before cellular service is usable during
+    // normal boot with Wi-Fi Calling enabled / CELL_PREF. Do not expose MMTEL
+    // READY from that transient IWLAN-only state, otherwise SipHandler setup can
+    // complete without starting SIP REGISTER.
+    //
+    // Keep the airplane-mode VoWiFi boot path: in airplane mode ServiceState is
+    // POWER_OFF, so IWLAN-only readiness is still allowed there.
+    val iwlanOnlyReadyAllowed = state == ServiceState.STATE_POWER_OFF
+    val iwlanOnlyReady = iwlanOnlyReadyAllowed && isIwlanReadyForPhhIms()
+
+    return cellularReady || iwlanOnlyReady
 }
+
 
 private fun ServiceState.phhImsReadyDebug(
     registeredPlmn: String? = phhRegisteredPlmnForIms(),
