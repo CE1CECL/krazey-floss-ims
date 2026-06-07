@@ -1125,6 +1125,27 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         return true
     }
 
+
+    private fun setupPlainSipSocketsAndSendInitialRegister() {
+        plainSocket = if (isControlSocketUdp)
+            SipConnectionUdp(network, pcscfAddr, localAddr)
+        else
+            SipConnectionTcp(network, pcscfAddr, localAddr)
+        connectSipSocketWithWatchdog(plainSocket, 5060, "plain initial")
+        socket = if (plainSocket is SipConnectionTcp)
+                SipConnectionTcp(network, pcscfAddr, plainSocket.gLocalAddr())
+            else
+                SipConnectionUdp(network, pcscfAddr, plainSocket.gLocalAddr())
+        serverSocket =
+            SipConnectionTcpServer(network, pcscfAddr, plainSocket.gLocalAddr(), socket.gLocalPort() + 1)
+        serverSocketUdp =
+            SipConnectionUdpServer(network, pcscfAddr, plainSocket.gLocalAddr(), socket.gLocalPort() + 1)
+
+        Rlog.d(TAG, "SIP ports ${imsDualSimDebugContext("src=${socket.gLocalPort()} tcpServer=${serverSocket.localPort} udpServer=${serverSocketUdp.localPort}")}")
+        updateCommonHeaders(plainSocket)
+        register(plainSocket.gWriter())
+    }
+
     fun connect() {
         if (!prepareImsEndpointForConnect()) {
             return
@@ -1139,23 +1160,7 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
             clientSpiC = clientSpiC)
         ipsecResourcesClosed = false
 
-        plainSocket = if (isControlSocketUdp)
-            SipConnectionUdp(network, pcscfAddr, localAddr)
-        else
-            SipConnectionTcp(network, pcscfAddr, localAddr)
-        connectSipSocketWithWatchdog(plainSocket, 5060, "plain initial")
-        socket = if(plainSocket is SipConnectionTcp)
-                SipConnectionTcp(network, pcscfAddr, plainSocket.gLocalAddr())
-            else
-                SipConnectionUdp(network, pcscfAddr, plainSocket.gLocalAddr())
-        serverSocket =
-            SipConnectionTcpServer(network, pcscfAddr, plainSocket.gLocalAddr(), socket.gLocalPort() + 1)
-        serverSocketUdp =
-            SipConnectionUdpServer(network, pcscfAddr, plainSocket.gLocalAddr(), socket.gLocalPort() + 1)
-
-        Rlog.d(TAG, "SIP ports ${imsDualSimDebugContext("src=${socket.gLocalPort()} tcpServer=${serverSocket.localPort} udpServer=${serverSocketUdp.localPort}")}")
-        updateCommonHeaders(plainSocket)
-        register(plainSocket.gWriter())
+        setupPlainSipSocketsAndSendInitialRegister()
 
         var plainRegReply = readPlainRegisterReply(plainSocket)
         Rlog.d(TAG, "Received $plainRegReply")
