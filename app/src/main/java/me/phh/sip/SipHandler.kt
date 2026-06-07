@@ -1146,6 +1146,20 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         register(plainSocket.gWriter())
     }
 
+
+    private fun requirePlainRegisterChallengeResponse(plainRegReply: SipMessage?): SipResponse? {
+        Rlog.d(TAG, "Received $plainRegReply")
+
+        if (plainRegReply !is SipResponse || plainRegReply.statusCode != 401) {
+            Rlog.w(TAG, "Didn't get expected response from initial register, aborting")
+            plainSocket.close()
+            failConnectAndRetry("Initial SIP REGISTER did not return 401")
+            return null
+        }
+
+        return plainRegReply
+    }
+
     fun connect() {
         if (!prepareImsEndpointForConnect()) {
             return
@@ -1162,15 +1176,9 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
 
         setupPlainSipSocketsAndSendInitialRegister()
 
-        var plainRegReply = readPlainRegisterReply(plainSocket)
-        Rlog.d(TAG, "Received $plainRegReply")
-
-        if (plainRegReply !is SipResponse || plainRegReply.statusCode != 401) {
-            Rlog.w(TAG, "Didn't get expected response from initial register, aborting")
-            plainSocket.close()
-            failConnectAndRetry("Initial SIP REGISTER did not return 401")
-            return
-        }
+        var plainRegReply = requirePlainRegisterChallengeResponse(
+            readPlainRegisterReply(plainSocket),
+        ) ?: return
 
         var registerChallenge = SipRegisterChallengeParser.parse(
             response = plainRegReply,
