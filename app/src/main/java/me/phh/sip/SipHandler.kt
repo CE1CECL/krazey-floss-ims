@@ -1561,6 +1561,31 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         }
     }
 
+
+    private fun handleImsNetworkAvailable(availableNetwork: Network) {
+        Rlog.d(TAG, "Got IMS network ${imsDualSimDebugContext("network=$availableNetwork")}")
+        if (!this::network.isInitialized) {
+            network = availableNetwork
+            thread {
+                Thread.sleep(4000)
+                try {
+                    connect()
+                } catch (e: Throwable) {
+                    Rlog.e(TAG, "connect() failed from IMS network callback", e)
+                    failConnectAndRetry("connect() failed from IMS network callback")
+                }
+            }
+        } else if (abandonnedBecauseOfNoPcscf || network != availableNetwork) {
+            reconnectIms(
+                "new IMS network available old=${network} new=$availableNetwork abandoned=$abandonnedBecauseOfNoPcscf",
+                availableNetwork,
+                delayMs = 4000L,
+            )
+        } else {
+            Rlog.d(TAG, "... already using this IMS network")
+        }
+    }
+
     fun getVolteNetwork() {
         // TODO add something similar for VoWifi ipsec tunnel?
         Rlog.d(TAG, "Requesting IMS network ${imsDualSimDebugContext()}")
@@ -1696,23 +1721,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 }
 
                 override fun onAvailable(_network: Network) {
-                    Rlog.d(TAG, "Got IMS network ${imsDualSimDebugContext("network=$_network")}")
-                    if (!this@SipHandler::network.isInitialized) {
-                        network = _network
-                        thread {
-                            Thread.sleep(4000)
-                            try {
-                                connect()
-                            } catch (e: Throwable) {
-                                Rlog.e(TAG, "connect() failed from IMS network callback", e)
-                        failConnectAndRetry("connect() failed from IMS network callback")
-                            }
-                        }
-                    } else if (abandonnedBecauseOfNoPcscf || network != _network) {
-                        reconnectIms("new IMS network available old=${network} new=$_network abandoned=$abandonnedBecauseOfNoPcscf", _network, delayMs = 4000L)
-                    } else {
-                        Rlog.d(TAG, "... already using this IMS network")
-                    }
+                    handleImsNetworkAvailable(_network)
                 }
             }
 
