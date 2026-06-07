@@ -1064,6 +1064,31 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         startSipReaderLoops()
     }
 
+
+    private fun readRegisterReplyOrRetry(
+        readFailureLog: String,
+        readFailureReason: String,
+        noResponseLog: String,
+        noResponseReason: String,
+        readReply: () -> SipMessage?,
+    ): SipMessage? {
+        val reply = try {
+            readReply()
+        } catch (t: Throwable) {
+            Rlog.w(TAG, readFailureLog, t)
+            failConnectAndRetry(readFailureReason)
+            return null
+        }
+
+        if (reply == null) {
+            Rlog.w(TAG, noResponseLog)
+            failConnectAndRetry(noResponseReason)
+            return null
+        }
+
+        return reply
+    }
+
     fun connect() {
         abandonnedBecauseOfNoPcscf = false
         resetRegistrationStateForConnect()
@@ -1297,26 +1322,13 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
             else if (socket is SipConnectionUdp) serverSocketUdp.gReader()
             else socket.gReader()
 
-        val regReply = try {
-            authenticatedRegisterReader.parseMessage()
-        } catch (t: Throwable) {
-            Rlog.w(
-                TAG,
-                "Authenticated SIP REGISTER response read failed, aborting SIP",
-                t,
-            )
-            failConnectAndRetry("Authenticated SIP REGISTER response read failed")
-            return
-        }
-
-        if (regReply == null) {
-            Rlog.w(
-                TAG,
-                "Authenticated SIP REGISTER got EOF/no response, aborting SIP",
-            )
-            failConnectAndRetry("Authenticated SIP REGISTER got EOF/no response")
-            return
-        }
+        val regReply = readRegisterReplyOrRetry(
+            readFailureLog = "Authenticated SIP REGISTER response read failed, aborting SIP",
+            readFailureReason = "Authenticated SIP REGISTER response read failed",
+            noResponseLog = "Authenticated SIP REGISTER got EOF/no response, aborting SIP",
+            noResponseReason = "Authenticated SIP REGISTER got EOF/no response",
+            readReply = { authenticatedRegisterReader.parseMessage() },
+        ) ?: return
         Rlog.d(TAG, "Received $regReply")
 
         if (regReply !is SipResponse || regReply.statusCode != 200) {
@@ -1348,26 +1360,13 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
                 register()
 
                 Rlog.d(TAG, "Waiting for canonical REGISTER realm retry response")
-                val canonicalRegReply = try {
-                    authenticatedRegisterReader.parseMessage()
-                } catch (t: Throwable) {
-                    Rlog.w(
-                        TAG,
-                        "Canonical REGISTER realm retry response read failed, aborting SIP",
-                        t,
-                    )
-                    failConnectAndRetry("Canonical REGISTER realm retry response read failed")
-                    return
-                }
-
-                if (canonicalRegReply == null) {
-                    Rlog.w(
-                        TAG,
-                        "Canonical REGISTER realm retry got EOF/no response, aborting SIP",
-                    )
-                    failConnectAndRetry("Canonical REGISTER realm retry got EOF/no response")
-                    return
-                }
+                val canonicalRegReply = readRegisterReplyOrRetry(
+                    readFailureLog = "Canonical REGISTER realm retry response read failed, aborting SIP",
+                    readFailureReason = "Canonical REGISTER realm retry response read failed",
+                    noResponseLog = "Canonical REGISTER realm retry got EOF/no response, aborting SIP",
+                    noResponseReason = "Canonical REGISTER realm retry got EOF/no response",
+                    readReply = { authenticatedRegisterReader.parseMessage() },
+                ) ?: return
 
                 Rlog.d(TAG, "Received after canonical REGISTER realm retry $canonicalRegReply")
                 if (canonicalRegReply is SipResponse && canonicalRegReply.statusCode == 200) {
