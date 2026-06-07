@@ -1470,6 +1470,23 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         handleAuthenticatedRegisterSuccess(regReply)
     }
 
+
+    private fun prepareAuthenticatedRegisterDigest(
+        registerChallenge: SipRegisterChallenge,
+        registerDigestUriRealm: String,
+        akaResult: SipAkaResult,
+    ) {
+        akaDigest = SipRegistrationDigestFactory.create(
+            user = user,
+            realm = registerChallenge.realm,
+            uri = "sip:$registerDigestUriRealm",
+            nonceB64 = registerChallenge.nonceB64,
+            opaque = registerChallenge.opaque,
+            akaResult = akaResult,
+            useNonsessAka = requireNonsessAka || registerChallenge.qop == null,
+        )
+    }
+
     fun connect() {
         if (!prepareImsEndpointForConnect()) {
             return
@@ -1505,14 +1522,10 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
 
         val registerRealmDecision = applyRegisterRealmDecision(registerChallenge.realm)
         val registerDigestUriRealm = registerRealmDecision.targetRealm
-        akaDigest = SipRegistrationDigestFactory.create(
-            user = user,
-            realm = registerChallenge.realm,
-            uri = "sip:$registerDigestUriRealm",
-            nonceB64 = registerChallenge.nonceB64,
-            opaque = registerChallenge.opaque,
+        prepareAuthenticatedRegisterDigest(
+            registerChallenge = registerChallenge,
+            registerDigestUriRealm = registerDigestUriRealm,
             akaResult = akaResult,
-            useNonsessAka = requireNonsessAka || registerChallenge.qop == null,
         )
 
         val portS = setupSecurityServerIpsecIfNeeded(
