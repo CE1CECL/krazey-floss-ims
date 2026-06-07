@@ -1041,6 +1041,19 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
 
     var abandonnedBecauseOfNoPcscf = false
     @Synchronized
+
+    private fun readPlainRegisterReply(plainSocket: SipConnection): SipMessage? {
+        return if (plainSocket is SipConnectionTcp) {
+            plainSocket.gReader().parseMessage()
+        } else {
+            // In some IMS servers, in UDP send mode, message might come back to plainSocket or to serverSocketUdp
+            if (select(listOf(serverSocketUdp.getChannel(), plainSocket.getChannel())) == 0)
+                serverSocketUdp.gReader().parseMessage()
+            else
+                plainSocket.gReader().parseMessage()
+        }
+    }
+
     fun connect() {
         abandonnedBecauseOfNoPcscf = false
         resetRegistrationStateForConnect()
@@ -1099,19 +1112,8 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         Rlog.d(TAG, "SIP ports ${imsDualSimDebugContext("src=${socket.gLocalPort()} tcpServer=${serverSocket.localPort} udpServer=${serverSocketUdp.localPort}")}")
         updateCommonHeaders(plainSocket)
         register(plainSocket.gWriter())
-        fun readPlainRegisterReply(): SipMessage? {
-            return if (plainSocket is SipConnectionTcp) {
-                plainSocket.gReader().parseMessage()
-            } else {
-                // In some IMS servers, in UDP send mode, message might come back to plainSocket or to serverSocketUdp
-                if (select(listOf(serverSocketUdp.getChannel(), plainSocket.getChannel())) == 0)
-                    serverSocketUdp.gReader().parseMessage()
-                else
-                    plainSocket.gReader().parseMessage()
-            }
-        }
 
-        var plainRegReply = readPlainRegisterReply()
+        var plainRegReply = readPlainRegisterReply(plainSocket)
         Rlog.d(TAG, "Received $plainRegReply")
 
         if (plainRegReply !is SipResponse || plainRegReply.statusCode != 401) {
@@ -1141,7 +1143,7 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
                 )
                 register(plainSocket.gWriter())
 
-                val resyncReply = readPlainRegisterReply()
+                val resyncReply = readPlainRegisterReply(plainSocket)
                 Rlog.d(TAG, "Received after AKA AUTS resynchronization $resyncReply")
                 if (resyncReply !is SipResponse || resyncReply.statusCode != 401) {
                     Rlog.w(TAG, "Didn't get expected 401 after AKA AUTS resynchronization, aborting")
