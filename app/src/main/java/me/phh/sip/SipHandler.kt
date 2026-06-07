@@ -1216,6 +1216,78 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         register()
     }
 
+
+    private fun setupSecurityServerIpsecIfNeeded(
+        plainRegReply: SipResponse,
+        clientSpiS: IpSecManager.SecurityParameterIndex,
+        clientSpiC: IpSecManager.SecurityParameterIndex,
+        akaResult: SipAkaResult,
+    ): Int {
+        var portS = 5060
+        // Check if there is a security-server header in the reply
+        if (plainRegReply.headers.containsKey("security-server")) {
+            val securityServer = plainRegReply.headers["security-server"]!!
+            commonHeaders += ("security-verify" to securityServer)
+            registerHeaders += ("security-verify" to securityServer)
+            val securityServerParams = SipSecurityServerSelector.select(securityServer).params
+                selectedSecurityClientForPromotedRegister =
+                    SipRegisterNegotiationPolicy.selectedSecurityClientHeader(
+                        securityServerParams = securityServerParams,
+                        ipsecSettings = ipsecSettings,
+                        clientPort = socket.gLocalPort(),
+                        serverPort = serverSocket.localPort,
+                    )
+
+
+            // Keep the protected REGISTER Security-Client identical to the initial
+            // Security-Client offer. Some IMS cores reject a narrowed/selected
+            // Security-Client as a bid-down attack.
+            registerSecurityClientOverride = null
+
+            portS = securityServerParams["port-s"]!!.toInt()
+            // spi string is 32 bit unsigned, but ipSecManager wants an int...
+            val spiS = securityServerParams["spi-s"]!!.toUInt().toInt()
+            val serverSpiS = allocateSecurityParameterIndexWithWatchdog("server SPI-S", pcscfAddr, spiS)
+
+            val spiC = securityServerParams["spi-c"]!!.toUInt().toInt()
+            val serverSpiC = allocateSecurityParameterIndexWithWatchdog("server SPI-C", pcscfAddr, spiC)
+
+            ipsecSettings = SipIpsecSettings(
+                clientSpiS = clientSpiS,
+                clientSpiC = clientSpiC,
+                serverSpiC = serverSpiC,
+                serverSpiS = serverSpiS)
+            ipsecResourcesClosed = false
+
+            val ipsecTransforms = SipIpsecTransformBuilder.build(
+                ctxt = ctxt,
+                pcscfAddr = pcscfAddr,
+                localAddr = localAddr,
+                clientSpiS = clientSpiS,
+                serverSpiC = serverSpiC,
+                securityServerParams = securityServerParams,
+                integrityKey = akaResult.ik,
+                cipherKey = akaResult.ck,
+            )
+            val ipSecBuilder = ipsecTransforms.builder
+            val serverInTransform = ipsecTransforms.serverInTransform
+            val serverOutTransform = ipsecTransforms.serverOutTransform
+            ipsecSettings = SipIpsecSettings(
+                clientSpiS = clientSpiS,
+                clientSpiC = clientSpiC,
+                serverSpiC = serverSpiC,
+                serverSpiS = serverSpiS,
+                serverInTransform = serverInTransform,
+                serverOutTransform = serverOutTransform)
+            ipsecResourcesClosed = false
+            socket.enableIpsec(ipSecBuilder, ipSecManager, clientSpiC, serverSpiS)
+            serverSocket.enableIpsec(ipSecManager, serverInTransform, serverOutTransform)
+            serverSocketUdp.enableIpsec(ipSecManager, serverInTransform, serverOutTransform)
+        }
+
+        return portS
+    }
+
     fun connect() {
         if (!prepareImsEndpointForConnect()) {
             return
@@ -1297,67 +1369,12 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
             useNonsessAka = requireNonsessAka || registerChallenge.qop == null,
         )
 
-        var portS = 5060
-        // Check if there is a security-server header in the reply
-        if(plainRegReply.headers.containsKey("security-server")) {
-            val securityServer = plainRegReply.headers["security-server"]!!
-            commonHeaders += ("security-verify" to securityServer)
-            registerHeaders += ("security-verify" to securityServer)
-            val securityServerParams = SipSecurityServerSelector.select(securityServer).params
-                selectedSecurityClientForPromotedRegister =
-                    SipRegisterNegotiationPolicy.selectedSecurityClientHeader(
-                        securityServerParams = securityServerParams,
-                        ipsecSettings = ipsecSettings,
-                        clientPort = socket.gLocalPort(),
-                        serverPort = serverSocket.localPort,
-                    )
-
-
-            // Keep the protected REGISTER Security-Client identical to the initial
-            // Security-Client offer. Some IMS cores reject a narrowed/selected
-            // Security-Client as a bid-down attack.
-            registerSecurityClientOverride = null
-
-            portS = securityServerParams["port-s"]!!.toInt()
-            // spi string is 32 bit unsigned, but ipSecManager wants an int...
-            val spiS = securityServerParams["spi-s"]!!.toUInt().toInt()
-            val serverSpiS = allocateSecurityParameterIndexWithWatchdog("server SPI-S", pcscfAddr, spiS)
-
-            val spiC = securityServerParams["spi-c"]!!.toUInt().toInt()
-            val serverSpiC = allocateSecurityParameterIndexWithWatchdog("server SPI-C", pcscfAddr, spiC)
-
-            ipsecSettings = SipIpsecSettings(
-                clientSpiS = clientSpiS,
-                clientSpiC = clientSpiC,
-                serverSpiC = serverSpiC,
-                serverSpiS = serverSpiS)
-            ipsecResourcesClosed = false
-
-            val ipsecTransforms = SipIpsecTransformBuilder.build(
-                ctxt = ctxt,
-                pcscfAddr = pcscfAddr,
-                localAddr = localAddr,
-                clientSpiS = clientSpiS,
-                serverSpiC = serverSpiC,
-                securityServerParams = securityServerParams,
-                integrityKey = akaResult.ik,
-                cipherKey = akaResult.ck,
-            )
-            val ipSecBuilder = ipsecTransforms.builder
-            val serverInTransform = ipsecTransforms.serverInTransform
-            val serverOutTransform = ipsecTransforms.serverOutTransform
-            ipsecSettings = SipIpsecSettings(
-                clientSpiS = clientSpiS,
-                clientSpiC = clientSpiC,
-                serverSpiC = serverSpiC,
-                serverSpiS = serverSpiS,
-                serverInTransform = serverInTransform,
-                serverOutTransform = serverOutTransform)
-            ipsecResourcesClosed = false
-            socket.enableIpsec(ipSecBuilder, ipSecManager, clientSpiC, serverSpiS)
-            serverSocket.enableIpsec(ipSecManager, serverInTransform, serverOutTransform)
-            serverSocketUdp.enableIpsec(ipSecManager, serverInTransform, serverOutTransform)
-        }
+        val portS = setupSecurityServerIpsecIfNeeded(
+            plainRegReply = plainRegReply,
+            clientSpiS = clientSpiS,
+            clientSpiC = clientSpiC,
+            akaResult = akaResult,
+        )
         connectProtectedSipSocketAndRegister(portS)
 
         Rlog.d(TAG, "Waiting for authenticated SIP REGISTER response")
