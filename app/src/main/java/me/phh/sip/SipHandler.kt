@@ -1288,6 +1288,72 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         return portS
     }
 
+
+    private data class SipAkaRegisterChallengeResult(
+        val plainRegReply: SipResponse,
+        val registerChallenge: SipRegisterChallenge,
+        val akaResult: SipAkaResult,
+    )
+
+    private fun resolveAkaRegisterChallenge(
+        plainRegReply: SipResponse,
+        registerChallenge: SipRegisterChallenge,
+    ): SipAkaRegisterChallengeResult? {
+        Rlog.d(TAG, "Requesting AKA challenge")
+        val akaResult = when (val result = sipAkaChallengeForRegistration(subTelephonyManager, registerChallenge.nonceB64)) {
+            is SipAkaChallengeResult.Success -> result.akaResult
+            is SipAkaChallengeResult.SynchronizationFailure -> {
+                Rlog.w(TAG, "AKA AUTS synchronization failure; sending one resynchronization REGISTER")
+                akaDigest = SipRegistrationDigestFactory.createSynchronizationFailure(
+                    user = user,
+                    realm = registerChallenge.realm,
+                    uri = "sip:$realm",
+                    nonceB64 = registerChallenge.nonceB64,
+                    opaque = registerChallenge.opaque,
+                    auts = result.auts,
+                    useNonsessAka = requireNonsessAka || registerChallenge.qop == null,
+                )
+                register(plainSocket.gWriter())
+
+                val resyncReply = readPlainRegisterReply(plainSocket)
+                Rlog.d(TAG, "Received after AKA AUTS resynchronization $resyncReply")
+                if (resyncReply !is SipResponse || resyncReply.statusCode != 401) {
+                    Rlog.w(TAG, "Didn't get expected 401 after AKA AUTS resynchronization, aborting")
+                    plainSocket.close()
+                    failConnectAndRetry("AKA AUTS resynchronization REGISTER did not return fresh 401")
+                    return null
+                }
+
+                val resyncChallenge = SipRegisterChallengeParser.parse(
+                    response = resyncReply,
+                    fallbackRealm = realm,
+                )
+                Rlog.d(TAG, "Requesting AKA challenge after AUTS resynchronization")
+                val resyncAkaResult = when (val retryResult = sipAkaChallengeForRegistration(subTelephonyManager, resyncChallenge.nonceB64)) {
+                    is SipAkaChallengeResult.Success -> retryResult.akaResult
+                    is SipAkaChallengeResult.SynchronizationFailure -> {
+                        Rlog.w(TAG, "AKA still returns AUTS after one resynchronization REGISTER; aborting")
+                        plainSocket.close()
+                        failConnectAndRetry("AKA still out of sync after AUTS resynchronization")
+                        return null
+                    }
+                }
+
+                return SipAkaRegisterChallengeResult(
+                    plainRegReply = resyncReply,
+                    registerChallenge = resyncChallenge,
+                    akaResult = resyncAkaResult,
+                )
+            }
+        }
+
+        return SipAkaRegisterChallengeResult(
+            plainRegReply = plainRegReply,
+            registerChallenge = registerChallenge,
+            akaResult = akaResult,
+        )
+    }
+
     fun connect() {
         if (!prepareImsEndpointForConnect()) {
             return
@@ -1312,48 +1378,13 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
             response = plainRegReply,
             fallbackRealm = realm,
         )
-        Rlog.d(TAG, "Requesting AKA challenge")
-        val akaResult = when (val result = sipAkaChallengeForRegistration(subTelephonyManager, registerChallenge.nonceB64)) {
-            is SipAkaChallengeResult.Success -> result.akaResult
-            is SipAkaChallengeResult.SynchronizationFailure -> {
-                Rlog.w(TAG, "AKA AUTS synchronization failure; sending one resynchronization REGISTER")
-                akaDigest = SipRegistrationDigestFactory.createSynchronizationFailure(
-                    user = user,
-                    realm = registerChallenge.realm,
-                    uri = "sip:$realm",
-                    nonceB64 = registerChallenge.nonceB64,
-                    opaque = registerChallenge.opaque,
-                    auts = result.auts,
-                    useNonsessAka = requireNonsessAka || registerChallenge.qop == null,
-                )
-                register(plainSocket.gWriter())
-
-                val resyncReply = readPlainRegisterReply(plainSocket)
-                Rlog.d(TAG, "Received after AKA AUTS resynchronization $resyncReply")
-                if (resyncReply !is SipResponse || resyncReply.statusCode != 401) {
-                    Rlog.w(TAG, "Didn't get expected 401 after AKA AUTS resynchronization, aborting")
-                    plainSocket.close()
-                    failConnectAndRetry("AKA AUTS resynchronization REGISTER did not return fresh 401")
-                    return
-                }
-
-                plainRegReply = resyncReply
-                registerChallenge = SipRegisterChallengeParser.parse(
-                    response = plainRegReply,
-                    fallbackRealm = realm,
-                )
-                Rlog.d(TAG, "Requesting AKA challenge after AUTS resynchronization")
-                when (val retryResult = sipAkaChallengeForRegistration(subTelephonyManager, registerChallenge.nonceB64)) {
-                    is SipAkaChallengeResult.Success -> retryResult.akaResult
-                    is SipAkaChallengeResult.SynchronizationFailure -> {
-                        Rlog.w(TAG, "AKA still returns AUTS after one resynchronization REGISTER; aborting")
-                        plainSocket.close()
-                        failConnectAndRetry("AKA still out of sync after AUTS resynchronization")
-                        return
-                    }
-                }
-            }
-        }
+        val akaChallengeResult = resolveAkaRegisterChallenge(
+            plainRegReply = plainRegReply,
+            registerChallenge = registerChallenge,
+        ) ?: return
+        plainRegReply = akaChallengeResult.plainRegReply
+        registerChallenge = akaChallengeResult.registerChallenge
+        val akaResult = akaChallengeResult.akaResult
 
         plainSocket.close()
 
