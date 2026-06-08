@@ -32,7 +32,10 @@ import me.phh.sip.toHex
 // changeEnabledCapabilities that has a protected (CapabilityCallbackProxy)
 // argument. See this stackoverflow link for why we cannot do it directly:
 // https://stackoverflow.com/questions/49284094/inheritance-from-java-class-with-a-public-method-accepting-a-protected-class-in/49287402#49287402
-class PhhMmTelFeature(val slotId: Int) : PhhMmTelFeatureProtected(slotId) {
+class PhhMmTelFeature(
+    val slotId: Int,
+    initialSubId: Int = SubscriptionManager.INVALID_SUBSCRIPTION_ID,
+) : PhhMmTelFeatureProtected(slotId) {
     companion object {
         private const val TAG = "PHH MmTelFeature"
     }
@@ -42,13 +45,24 @@ class PhhMmTelFeature(val slotId: Int) : PhhMmTelFeatureProtected(slotId) {
     private val readyCheckExecutor = Executors.newSingleThreadExecutor()
     private var readyCheckCallback: TelephonyCallback? = null
     private var readyCheckAttempts = 0
+    private var frameworkSubId = initialSubId
+    private var featureInitialized = false
 
     val imsSms = PhhImsSms(slotId)
     lateinit var sipHandler: SipHandler
     private var sipHandlerSubId = SubscriptionManager.INVALID_SUBSCRIPTION_ID
     private var outgoingCallListener: ImsCallSessionListener? = null
     private var outgoingCallActive = false
-    fun getSipHandlerOrNull(): SipHandler? = if (this::sipHandler.isInitialized) sipHandler else null
+    fun getSipHandlerOrNull(): SipHandler? {
+        return if (
+            this::sipHandler.isInitialized &&
+            SubscriptionManager.isValidSubscriptionId(sipHandlerSubId)
+        ) {
+            sipHandler
+        } else {
+            null
+        }
+    }
 
     private fun refreshMmTelCapabilities(reason: String) {
         val capabilities = MmTelCapabilities()
@@ -62,9 +76,24 @@ class PhhMmTelFeature(val slotId: Int) : PhhMmTelFeatureProtected(slotId) {
 
     private fun resolveSubIdForSlot(): Int {
         val subscriptionManager = mContext.getSystemService(SubscriptionManager::class.java)
+        val activeSubscriptions = subscriptionManager.activeSubscriptionInfoList.orEmpty()
 
-        val activeSubId = subscriptionManager.activeSubscriptionInfoList
-            .orEmpty()
+        if (SubscriptionManager.isValidSubscriptionId(frameworkSubId)) {
+            val frameworkSlot = activeSubscriptions
+                .firstOrNull { it.subscriptionId == frameworkSubId }
+                ?.simSlotIndex
+
+            if (frameworkSlot == null || frameworkSlot == slotId) {
+                return frameworkSubId
+            }
+
+            Rlog.w(
+                TAG,
+                "$slotId ignoring frameworkSubId=$frameworkSubId because active slot is $frameworkSlot",
+            )
+        }
+
+        val activeSubId = activeSubscriptions
             .firstOrNull { it.simSlotIndex == slotId }
             ?.subscriptionId
 
@@ -72,9 +101,9 @@ class PhhMmTelFeature(val slotId: Int) : PhhMmTelFeatureProtected(slotId) {
             return activeSubId
         }
 
-        val frameworkSubId = SubscriptionManager.getSubscriptionId(slotId)
-        if (SubscriptionManager.isValidSubscriptionId(frameworkSubId)) {
-            return frameworkSubId
+        val frameworkSlotSubId = SubscriptionManager.getSubscriptionId(slotId)
+        if (SubscriptionManager.isValidSubscriptionId(frameworkSlotSubId)) {
+            return frameworkSlotSubId
         }
 
         return SubscriptionManager.INVALID_SUBSCRIPTION_ID
@@ -106,6 +135,32 @@ class PhhMmTelFeature(val slotId: Int) : PhhMmTelFeatureProtected(slotId) {
         return true
     }
 
+    private fun retireSipHandler(reason: String) {
+        if (
+            this::sipHandler.isInitialized &&
+            SubscriptionManager.isValidSubscriptionId(sipHandlerSubId)
+        ) {
+            Rlog.w(
+                TAG,
+                "$slotId retiring SipHandler for subId=$sipHandlerSubId: $reason",
+            )
+            sipHandler.shutdown(reason, notifyFramework = false)
+        }
+
+        sipHandlerSubId = SubscriptionManager.INVALID_SUBSCRIPTION_ID
+    }
+
+    private fun unregisterReadyCheckCallback(reason: String) {
+        readyCheckCallback?.let { oldCallback ->
+            try {
+                telephonyManager?.unregisterTelephonyCallback(oldCallback)
+            } catch (t: Throwable) {
+                Rlog.d(TAG, "$slotId unregister IMS ready callback failed after $reason: ${t.message}")
+            }
+            readyCheckCallback = null
+        }
+    }
+
     private fun bindReadyCheckTelephonyManager(reason: String) {
         val subId = resolveSubIdForSlot()
         if (!SubscriptionManager.isValidSubscriptionId(subId)) {
@@ -127,14 +182,7 @@ class PhhMmTelFeature(val slotId: Int) : PhhMmTelFeatureProtected(slotId) {
 
         readyCheckAttempts = 0
 
-        readyCheckCallback?.let { oldCallback ->
-            try {
-                telephonyManager?.unregisterTelephonyCallback(oldCallback)
-            } catch (t: Throwable) {
-                Rlog.d(TAG, "$slotId unregister old IMS ready callback failed: ${t.message}")
-            }
-            readyCheckCallback = null
-        }
+        unregisterReadyCheckCallback("rebinding IMS ready check")
 
         val boundTelephonyManager = mContext
             .getSystemService(TelephonyManager::class.java)
@@ -176,9 +224,48 @@ class PhhMmTelFeature(val slotId: Int) : PhhMmTelFeatureProtected(slotId) {
         }
     }
 
+    fun onSubscriptionChangedFromService(subscriptionId: Int) {
+        val oldFrameworkSubId = frameworkSubId
+        frameworkSubId = subscriptionId
+
+        Rlog.d(
+            TAG,
+            "$slotId service subscription update oldFrameworkSubId=$oldFrameworkSubId " +
+                "newSubId=$subscriptionId handlerSubId=$sipHandlerSubId",
+        )
+
+        if (!featureInitialized) {
+            Rlog.d(TAG, "$slotId deferring service subscription update until initialize")
+            return
+        }
+
+        if (!SubscriptionManager.isValidSubscriptionId(subscriptionId)) {
+            unregisterReadyCheckCallback("service subscription invalid")
+            retireSipHandler("subscription removed oldSubId=$sipHandlerSubId")
+            featureState = STATE_INITIALIZING
+            return
+        }
+
+        if (
+            this::sipHandler.isInitialized &&
+            SubscriptionManager.isValidSubscriptionId(sipHandlerSubId) &&
+            sipHandlerSubId != subscriptionId
+        ) {
+            retireSipHandler(
+                "service subscription changed oldSubId=$sipHandlerSubId newSubId=$subscriptionId"
+            )
+            featureState = STATE_INITIALIZING
+        }
+
+        if (featureState != STATE_READY) {
+            bindReadyCheckTelephonyManager("service subscription update")
+        }
+    }
+
     override fun initialize(context: Context?, slotId: Int) {
         super.initialize(context, slotId)
 
+        featureInitialized = true
         featureState = STATE_INITIALIZING
         bindReadyCheckTelephonyManager("initialize")
     }
@@ -345,13 +432,18 @@ class PhhMmTelFeature(val slotId: Int) : PhhMmTelFeatureProtected(slotId) {
 
         val subId = resolveSubIdForSlot()
         if (!SubscriptionManager.isValidSubscriptionId(subId)) {
-            Rlog.w(TAG, "$slotId onFeatureReady without valid subId; rebinding ready check")
+            Rlog.w(TAG, "$slotId onFeatureReady without valid subId; retiring stale handler")
+            unregisterReadyCheckCallback("onFeatureReady without valid subId")
+            retireSipHandler("onFeatureReady without valid subId")
             featureState = STATE_INITIALIZING
             bindReadyCheckTelephonyManager("onFeatureReady without valid subId")
             return
         }
 
-        if (this::sipHandler.isInitialized) {
+        if (
+            this::sipHandler.isInitialized &&
+            SubscriptionManager.isValidSubscriptionId(sipHandlerSubId)
+        ) {
             if (sipHandlerSubId == subId && sipHandler.handlesSubscription(subId)) {
                 return
             }
@@ -361,9 +453,8 @@ class PhhMmTelFeature(val slotId: Int) : PhhMmTelFeatureProtected(slotId) {
                 "$slotId subscription changed for existing SipHandler: " +
                     "oldSubId=$sipHandlerSubId newSubId=$subId; replacing"
             )
-            sipHandler.shutdown(
-                "subscription changed oldSubId=$sipHandlerSubId newSubId=$subId",
-                notifyFramework = false,
+            retireSipHandler(
+                "subscription changed oldSubId=$sipHandlerSubId newSubId=$subId"
             )
         }
 
@@ -493,11 +584,12 @@ sipHandler.imsFailureCallback = {
     override fun onFeatureRemoved() {
         Rlog.d(TAG, "$slotId onFeatureRemoved")
 
-        if (this::sipHandler.isInitialized) {
-            sipHandler.shutdown("feature removed", notifyFramework = false)
-        }
+        unregisterReadyCheckCallback("feature removed")
+        retireSipHandler("feature removed")
 
-        sipHandlerSubId = SubscriptionManager.INVALID_SUBSCRIPTION_ID
+        frameworkSubId = SubscriptionManager.INVALID_SUBSCRIPTION_ID
+        featureInitialized = false
+        featureState = STATE_INITIALIZING
     }
 
     // ints are @MmTelCapabilities.MmTelCapability and @ImsRegistrationImplBase.ImsRegistrationTech
