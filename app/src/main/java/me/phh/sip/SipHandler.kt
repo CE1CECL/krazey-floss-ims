@@ -2225,8 +2225,22 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         }
 
         sendByeForCall(call)
-        if (!call.outgoing) rememberTerminatedIncomingCall(call.callIdOrEmpty(), "local BYE")
-        currentCall = null
+        if (!call.outgoing) {
+            rememberTerminatedIncomingCall(call.callIdOrEmpty(), "local BYE")
+            currentCall = null
+        } else {
+            val outgoingByeCallId = call.callIdOrNull()
+            Rlog.d(TAG, "Keeping outgoing dialog until BYE transaction completes callId=$outgoingByeCallId")
+            myHandler.postDelayed({
+                if (currentCall?.outgoing == true &&
+                    currentCall?.callIdOrNull() == outgoingByeCallId &&
+                    callStopped.get()
+                ) {
+                    Rlog.w(TAG, "Clearing outgoing dialog after BYE response timeout callId=$outgoingByeCallId")
+                    currentCall = null
+                }
+            }, 4000L)
+        }
         incomingAcceptedAwaitingAck.set(false)
         incomingHangupAfterAck.set(false)
         clearPendingOutgoingInvite(call.callIdOrNull(), closeRtpSocket = false, reason = "confirmed call terminated")
@@ -2450,7 +2464,28 @@ a=sendrecv
                     rseqHandled = true
                 }
 
-                if (cseq.contains("ACK")) return@setResponseCallback  false
+                if (cseq.contains("ACK")) return@setResponseCallback false
+                if (cseq.contains("BYE")) {
+                    val byeCallId = resp.callIdOrEmpty()
+                    if (resp.statusCode in 200..299) {
+                        Rlog.d(TAG, "Outgoing BYE accepted; clearing dialog callId=$byeCallId cseq=$cseq")
+                    } else if (resp.statusCode >= 300) {
+                        Rlog.w(
+                            TAG,
+                            "Outgoing BYE failed; clearing local dialog anyway: " +
+                                "status=${resp.statusCode} ${resp.statusString} cseq=$cseq callId=$byeCallId",
+                        )
+                    } else {
+                        return@setResponseCallback false
+                    }
+                    currentCall = null
+                    clearPendingOutgoingInvite(
+                        byeCallId,
+                        closeRtpSocket = false,
+                        reason = "outgoing BYE response $cseq ${resp.statusCode}",
+                    )
+                    return@setResponseCallback true
+                }
 
                 if (cseq.contains("INVITE") && (resp.statusCode == 200 || resp.statusCode == 202)) {
                     val finalInviteCallId = resp.callIdOrEmpty()
