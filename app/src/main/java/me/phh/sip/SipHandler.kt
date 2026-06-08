@@ -4385,7 +4385,25 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                     "[${socket.gLocalAddr().hostAddress}]:${serverSocket.localPort}"
                 else
                     "${socket.gLocalAddr().hostAddress}:${serverSocket.localPort}"
-            val dialogContact = "<sip:$owner@$local;transport=tcp>"
+            val incomingDialogTransport = request.headers["via"]
+                ?.firstOrNull()
+                ?.substringAfter("SIP/2.0/", "")
+                ?.substringBefore(" ")
+                ?.trim()
+                ?.lowercase()
+                ?.takeIf { it == "udp" || it == "tcp" }
+                ?: SipContactHeaders.transport(socket)
+            val dialogContact = SipContactHeaders.mmtelContact(
+                userPart = owner,
+                localEndpoint = local,
+                transport = incomingDialogTransport,
+                sipInstance = SipContactHeaders.sipInstanceFromImei(imei),
+            )
+            Rlog.d(
+                TAG,
+                "Incoming dialog Contact: $dialogContact " +
+                    "transport=$incomingDialogTransport callId=$incomingCallId",
+            )
             val mySeqCounter = reliableSequenceCounter++
             val ipType = if(socket.gLocalAddr() is Inet6Address) "IP6" else "IP4"
             val sdpLines = mutableListOf(
