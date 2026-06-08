@@ -389,6 +389,16 @@ class PhhMmTelFeature(
                 session.currentCallProfile = callProfile
                 session.mListener.callSessionInitiated(callProfile)
             }
+
+            sipHandler.onOutgoingCallProgressing = { _: Object, extras: Map<String, String> ->
+                Rlog.d(TAG, "Outgoing call progressing: $extras")
+                val callProfile = makeVoiceCallProfile()
+                callProfile.mMediaProfile.mAudioDirection =
+                    android.telephony.ims.ImsStreamMediaProfile.DIRECTION_INACTIVE
+                session.currentCallProfile = callProfile
+                session.mListener.callSessionProgressing(callProfile.mMediaProfile)
+            }
+
         }
     }
 
