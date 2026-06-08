@@ -268,8 +268,7 @@ class PhhMmTelFeature(val slotId: Int) : PhhMmTelFeatureProtected(slotId) {
                 callerNumber,
                 ImsStreamMediaProfile.AUDIO_QUALITY_EVS_FB,
             )
-            @Suppress("DEPRECATION")
-        notifyIncomingCall(object: ImsCallSessionImplBase() {
+            val incomingSession = object: ImsCallSessionImplBase() {
                 var mState = State.IDLE
                 override fun getCallProfile(): ImsCallProfile {
                     return callProfile
@@ -341,7 +340,13 @@ class PhhMmTelFeature(val slotId: Int) : PhhMmTelFeatureProtected(slotId) {
                     }
                 }
 
-            }, Bundle())
+            }
+            val frameworkCallListener = notifyIncomingCall(incomingSession, incomingSession.getCallId(), Bundle())
+            if (frameworkCallListener != null) {
+                incomingSession.setListener(frameworkCallListener)
+            } else {
+                Rlog.w(TAG, "Framework rejected incoming IMS call ${incomingSession.getCallId()}")
+            }
         }
         sipHandler.onCancelledCall = { param: Object, reason: String, map: Map<String, String> ->
     Rlog.d(TAG, "Cancelling call")
