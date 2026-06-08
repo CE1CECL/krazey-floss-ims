@@ -1723,7 +1723,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
             "a=conf:qos remote sendrecv",
             "a=sendrecv",
         )
-        val answerSdp = answerSdpLines.joinToString("\\r\\n").toByteArray(Charsets.US_ASCII)
+        val answerSdp = answerSdpLines.joinToString("\r\n").toByteArray(Charsets.US_ASCII)
 
         currentCall = call.copy(
             amrTrack = amrTrack,
