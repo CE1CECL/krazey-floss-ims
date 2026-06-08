@@ -1,15 +1,12 @@
 //SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.media.*
 import android.net.*
 import android.os.Handler
 import android.os.HandlerThread
 import android.telephony.Rlog
-import android.telephony.SmsManager
-import android.net.TelephonyNetworkSpecifier
 import android.telephony.TelephonyManager
 import android.telephony.ims.stub.ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN
 import android.telephony.ims.stub.ImsRegistrationImplBase.REGISTRATION_TECH_LTE
@@ -21,9 +18,7 @@ import java.net.*
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.thread
-import kotlin.concurrent.withLock
 
 class SipHandler(
     val ctxt: Context,
@@ -142,9 +137,6 @@ class SipHandler(
 
     private val dispatcher = SipDispatcher(TAG)
 
-    private val cbLock = ReentrantLock()
-    private var requestCallbacks: Map<SipMethod, ((SipRequest) -> Int)> = mapOf()
-    private var responseCallbacks: Map<String, ((SipResponse) -> Boolean)> = mapOf()
     // SIP responses must be written back on the same transport flow that delivered the request.
     // This is especially important for incoming INVITE over the TCP server socket: writing the
     // 180/200 to the registration/control socket can make the P-CSCF ignore the final response.
@@ -586,24 +578,21 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
             return
         }
 
-        val (wwwAuthenticateType, wwwAuthenticateParams) =
-            plainRegReply.headers["www-authenticate"]!![0].getAuthValues()
-        require(wwwAuthenticateType == "Digest")
-        val nonceB64 = wwwAuthenticateParams["nonce"]!!
-        // Use the realm from the 401 challenge for H1 and the Authorization realm= field,
-        // as required by RFC 2617. Carriers often differ from the subscriber's own realm.
-        val challengeRealm = wwwAuthenticateParams["realm"] ?: realm
+        val registerChallenge = SipRegisterChallengeParser.parse(
+            response = plainRegReply,
+            fallbackRealm = realm,
+        )
 
         Rlog.d(TAG, "Requesting AKA challenge")
-        val akaResult = sipAkaChallenge(subTelephonyManager, nonceB64)
+        val akaResult = sipAkaChallenge(subTelephonyManager, registerChallenge.nonceB64)
         akaDigest = SipRegistrationDigestFactory.create(
             user = user,
-            realm = challengeRealm,
+            realm = registerChallenge.realm,
             uri = "sip:$realm",
-            nonceB64 = nonceB64,
-            opaque = wwwAuthenticateParams["opaque"],
+            nonceB64 = registerChallenge.nonceB64,
+            opaque = registerChallenge.opaque,
             akaResult = akaResult,
-            useNonsessAka = requireNonsessAka || wwwAuthenticateParams["qop"] == null,
+            useNonsessAka = requireNonsessAka || registerChallenge.qop == null,
         )
 
         var portS = 5060
@@ -612,18 +601,7 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
             val securityServer = plainRegReply.headers["security-server"]!!
             commonHeaders += ("security-verify" to securityServer)
             registerHeaders += ("security-verify" to securityServer)
-            val supported_alg = listOf("hmac-sha-1-96", "hmac-md5-96")
-            val supported_ealg = listOf("aes-cbc", "null")
-            val (securityServerType, securityServerParams) =
-                securityServer
-                    .map { it.getParams() }
-                    .filter {
-                        val thisEAlg = it.component2()["ealg"] ?: "null"
-                        supported_ealg.contains(thisEAlg)
-                    }
-                    .filter { supported_alg.contains(it.component2()["alg"]) }
-                    .sortedByDescending { it.component2()["q"]?.toFloat() ?: 0.toFloat() }[0]
-            require(securityServerType == "ipsec-3gpp")
+            val securityServerParams = SipSecurityServerSelector.select(securityServer).params
 
             portS = securityServerParams["port-s"]!!.toInt()
             // spi string is 32 bit unsigned, but ipSecManager wants an int...
@@ -640,24 +618,19 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
                 serverSpiS = serverSpiS)
             ipsecResourcesClosed = false
 
-            val ealg = securityServerParams["ealg"] ?: "null"
-            val (alg, hmac_key) = if (securityServerParams["alg"] == "hmac-sha-1-96") {
-                // sha-1-96 mac key must be 160 bits, pad ik
-                IpSecAlgorithm.AUTH_HMAC_SHA1 to akaResult.ik + ByteArray(4)
-            } else {
-                IpSecAlgorithm.AUTH_HMAC_MD5 to akaResult.ik
-            }
-            val ipSecBuilder =
-                IpSecTransform.Builder(ctxt)
-                    .setAuthentication(IpSecAlgorithm(alg, hmac_key, 96))
-                    .also {
-                        if (ealg == "aes-cbc") {
-                            it.setEncryption(IpSecAlgorithm(IpSecAlgorithm.CRYPT_AES_CBC, akaResult.ck))
-                        }
-                    }
-
-            val serverInTransform = ipSecBuilder.buildTransportModeTransform(pcscfAddr, clientSpiS)
-            val serverOutTransform = ipSecBuilder.buildTransportModeTransform(localAddr, serverSpiC)
+            val ipsecTransforms = SipIpsecTransformBuilder.build(
+                ctxt = ctxt,
+                pcscfAddr = pcscfAddr,
+                localAddr = localAddr,
+                clientSpiS = clientSpiS,
+                serverSpiC = serverSpiC,
+                securityServerParams = securityServerParams,
+                integrityKey = akaResult.ik,
+                cipherKey = akaResult.ck,
+            )
+            val ipSecBuilder = ipsecTransforms.builder
+            val serverInTransform = ipsecTransforms.serverInTransform
+            val serverOutTransform = ipsecTransforms.serverOutTransform
             ipsecSettings = SipIpsecSettings(
                 clientSpiS = clientSpiS,
                 clientSpiC = clientSpiC,
@@ -688,21 +661,24 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
 
         reconnectController.markConnected()
 
-        setResponseCallback(registerHeaders["call-id"]!![0], ::registerCallback)
-        setRequestCallback(SipMethod.MESSAGE, ::handleSms)
-        setRequestCallback(SipMethod.INVITE, ::handleCall)
-        setRequestCallback(SipMethod.PRACK, ::handlePrack)
-        setRequestCallback(SipMethod.ACK, ::handleAck)
-        setRequestCallback(SipMethod.CANCEL, ::handleCancel)
-        setRequestCallback(SipMethod.BYE, ::handleCancel)
-        setRequestCallback(SipMethod.UPDATE, ::handleUpdate)
+        installSipCallbacks()
         handleResponse(regReply)
 
-        // two ways we'll get incoming messages:
+        startSipReaderLoops()
+    }
+
+    private fun startSipReaderLoops() {
+        // Two ways we'll get incoming messages:
         // - reply to normal socket (just read forever)
         // - connection to server socket
-        // start both in threads as we're only called here from network
-        // callback from which it's better to return
+        // Start both in threads as we're only called here from network callback from which
+        // it's better to return.
+        startMainSipReaderLoop()
+        startTcpServerSipReaderLoop()
+        startUdpServerSipReaderLoop()
+    }
+
+    private fun startMainSipReaderLoop() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 while (parseMessage(socket.gReader(), socket.gWriter())) { }
@@ -712,30 +688,35 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
             }
             if (shouldReconnectAfterSipTransportLoss("main/control SIP socket lost")) reconnectIms("main/control SIP socket lost")
         }
-                CoroutineScope(Dispatchers.IO).launch {
+    }
+
+    private fun startTcpServerSipReaderLoop() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                while (true) {
+                    val accepted = serverSocket.accept()
                     try {
-                        while (true) {
-                            val accepted = serverSocket.accept()
-                            try {
-                                while (parseMessage(accepted.reader, accepted.writer)) {
-                                }
-                            } catch (t: Throwable) {
-                                if (serverSocket.serverSocket.isClosed) {
-                                    throw t
-                                }
-                                Rlog.w(TAG, "Got exception in accepted TCP server SIP flow; keeping IMS server socket alive", t)
-                            } finally {
-                                serverSocket.closeAccepted(accepted.socket)
-                            }
+                        while (parseMessage(accepted.reader, accepted.writer)) {
                         }
-                    } catch(t: Throwable) {
-                        Rlog.w(TAG, "Got exception in TCP server socket, reconnecting", t)
-                        if (shouldReconnectAfterSipTransportLoss("TCP server SIP socket lost")) {
-                            reconnectIms("TCP server SIP socket lost")
+                    } catch (t: Throwable) {
+                        if (serverSocket.serverSocket.isClosed) {
+                            throw t
                         }
+                        Rlog.w(TAG, "Got exception in accepted TCP server SIP flow; keeping IMS server socket alive", t)
+                    } finally {
+                        serverSocket.closeAccepted(accepted.socket)
                     }
                 }
+            } catch(t: Throwable) {
+                Rlog.w(TAG, "Got exception in TCP server socket, reconnecting", t)
+                if (shouldReconnectAfterSipTransportLoss("TCP server SIP socket lost")) {
+                    reconnectIms("TCP server SIP socket lost")
+                }
+            }
+        }
+    }
 
+    private fun startUdpServerSipReaderLoop() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val bufferIn = ByteArray(128 * 1024)
@@ -759,6 +740,17 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         }
     }
 
+    private fun installSipCallbacks() {
+        setResponseCallback(registerHeaders["call-id"]!![0], ::registerCallback)
+        setRequestCallback(SipMethod.MESSAGE, ::handleSms)
+        setRequestCallback(SipMethod.INVITE, ::handleCall)
+        setRequestCallback(SipMethod.PRACK, ::handlePrack)
+        setRequestCallback(SipMethod.ACK, ::handleAck)
+        setRequestCallback(SipMethod.CANCEL, ::handleCancel)
+        setRequestCallback(SipMethod.BYE, ::handleCancel)
+        setRequestCallback(SipMethod.UPDATE, ::handleUpdate)
+    }
+
     fun getVolteNetwork() {
         // TODO add something similar for VoWifi ipsec tunnel?
         Rlog.d(TAG, "Requesting IMS network for slotId=$slotId subId=$subId")
@@ -767,15 +759,7 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
             scheduleImsNetworkRequestRestart("RAT not ready for IMS network request")
             return
         }
-        val imsNetworkRequest = NetworkRequest.Builder()
-            .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_IMS)
-            .setNetworkSpecifier(
-                TelephonyNetworkSpecifier.Builder()
-                    .setSubscriptionId(subId)
-                    .build()
-            )
-            .build()
+        val imsNetworkRequest = ImsNetworkRequestBuilder.buildForSubscription(subId)
 
         Rlog.d(TAG, "Built subscription-specific IMS network request $imsNetworkRequest")
 
@@ -925,27 +909,15 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
 
     fun updateCommonHeaders(socket: SipConnection) {
         // Note: we are giving serverSocket (TCP) port, but TCP and UDP servers use the same port
-        val local = if(socket.gLocalAddr() is Inet6Address)
-            "[${socket.gLocalAddr().hostAddress}]:${serverSocket.localPort}"
-        else
-            "${socket.gLocalAddr().hostAddress}:${serverSocket.localPort}"
-
-        val sipInstance = "<urn:gsma:imei:${imei.substring(0,8)}-${imei.substring(8,14)}-0>"
-        val transport = if (socket is SipConnectionTcp) "tcp" else "udp"
-        contact =
-            """<sip:$imsi@$local;transport=$transport>;expires=600000;+sip.instance="$sipInstance";+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel";+g.3gpp.smsip;audio"""
-        val newHeaders =
-            (if(socket is SipConnectionTcp) {
-                """
-                Via: SIP/2.0/TCP $local;rport
-                """
-            } else {
-                """
-                Via: SIP/2.0/UDP $local;rport
-                """
-            }).toSipHeadersMap()
-        registerHeaders += newHeaders
-        commonHeaders += newHeaders
+        val update = SipCommonHeaderBuilder.build(
+            socket = socket,
+            serverPort = serverSocket.localPort,
+            imei = imei,
+            imsi = imsi,
+        )
+        contact = update.contact
+        registerHeaders += update.headers
+        commonHeaders += update.headers
     }
     fun register(_writer: OutputStream? = null) {
         RegistrationCellInfoLogger.log(TAG, subTelephonyManager)
@@ -959,31 +931,16 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
 
         val writer = _writer ?: socket.gWriter()
 
-        val secClientLine = SipSecurityClientHeader.build(
+        val msg = SipRegisterRequestBuilder.build(
+            realm = realm,
+            registerHeaders = registerHeaders,
+            registerCounter = registerCounter,
+            contact = contact,
+            akaDigest = akaDigest,
             ipsecSettings = ipsecSettings,
             clientPort = socket.gLocalPort(),
             serverPort = serverSocket.localPort,
         )
-
-                    //P-Access-Network-Info: 3GPP-E-UTRAN-FDD;utran-cell-id-3gpp=216302ee2003a107
-        val msg =
-            SipRequest(
-                SipMethod.REGISTER,
-                "sip:$realm",
-                //"sip:lte-lguplus.co.kr",
-                registerHeaders +
-                    """
-                    Expires: 600000
-                    Cseq: $registerCounter REGISTER
-                    Contact: $contact
-                    Supported: path, gruu, sec-agree
-                    Allow: INVITE, ACK, CANCEL, BYE, UPDATE, REFER, NOTIFY, MESSAGE, PRACK, OPTIONS
-                    Authorization: $akaDigest
-                    Require: sec-agree
-                    Proxy-Require: sec-agree
-                    $secClientLine
-                    """.toSipHeadersMap()
-            ) // route present on all calls except this
         Rlog.d(TAG, "Sending $msg")
         synchronized(writer) {
             writer.write(msg.toByteArray())
@@ -997,30 +954,10 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         // on failure just abort thread, ims will restart
         require(response.statusCode == 200)
 
-        val r =  Regex("lr;[^>]*")
-        val route =
-            (response.headers.getOrDefault("service-route", emptyList()) +
-                    response.headers.getOrDefault("path", emptyList()))
-                .toSet() // remove duplicates
-                .toList()
-                .map {
-                    r.replace(it, "lr")
-                }
-
-        val associatedUri =
-            response.headers["p-associated-uri"]!!
-                .flatMap { it.split(",") }
-                .map { it.trimStart('<').trimEnd('>').split(':') }
-        val preSip = associatedUri.first { it[0] == "sip" }[1]
-
-        mySip = "sip:" + preSip
-        myTel = associatedUri.firstOrNull { it[0] == "tel" }?.get(1) ?: preSip.split("@")[0]
-        commonHeaders +=
-            mapOf(
-                "route" to route,
-                "from" to listOf("<$mySip>"),
-                "to" to listOf("<$mySip>"),
-            )
+        val registeredIdentity = SipRegisterSuccessParser.parse(response)
+        mySip = registeredIdentity.mySip
+        myTel = registeredIdentity.myTel
+        commonHeaders += registeredIdentity.commonHeaders()
 
         subscribe()
 
@@ -1034,33 +971,14 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
     }
 
     fun subscribe() {
-        val local =
-            if(socket.gLocalAddr() is Inet6Address)
-                "[${socket.gLocalAddr().hostAddress}]:${serverSocket.localPort}"
-            else
-                "${socket.gLocalAddr().hostAddress}:${serverSocket.localPort}"
-        val sipInstance = "<urn:gsma:imei:${imei.substring(0,8)}-${imei.substring(8,14)}-0>"
-        val transport = if (socket is SipConnectionTcp) "tcp" else "udp"
-        val contactTel =
-            """<sip:$myTel@$local;transport=$transport>;expires=600000;+sip.instance="$sipInstance";+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel";+g.3gpp.smsip;audio"""
-        val msg =
-            SipRequest(
-                SipMethod.SUBSCRIBE,
-                "$mySip",
-                commonHeaders +
-                    """
-                    Contact: $contactTel
-                    P-Preferred-Identity: <$mySip>
-                    Event: reg
-                    Expires: 600000
-                    Supported: sec-agree
-                    Require: sec-agree
-                    Proxy-Require: sec-agree
-                    Allow: INVITE, ACK, CANCEL, BYE, UPDATE, REFER, NOTIFY, INFO, MESSAGE, PRACK, OPTIONS
-                    Accept: application/reginfo+xml
-                    P-Access-Network-Info: 3GPP-E-UTRAN-FDD;utran-cell-id-3gpp=20810b8c49752501
-                    """.toSipHeadersMap()
-            )
+        val msg = SipRegEventSubscribeBuilder.build(
+            mySip = mySip,
+            myTel = myTel,
+            commonHeaders = commonHeaders,
+            socket = socket,
+            serverPort = serverSocket.localPort,
+            imei = imei,
+        )
         setResponseCallback(msg.headers["call-id"]!![0], ::subscribeCallback)
         Rlog.d(TAG, "Sending $msg")
         synchronized(socket.gWriter()) { socket.gWriter().write(msg.toByteArray()) }
@@ -1357,19 +1275,13 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         callId: String,
         terminatedCall: Call?,
         isBye: Boolean,
-    ): Map<String, String> {
-        if (isBye && terminatedCall?.outgoing == true && terminatedCall.outgoingConnectedNotified.get() == false) {
-            Rlog.w(TAG, "Remote ended outgoing call before any RTP/media arrived; reporting as network rejection callId=$callId")
-            return mapOf(
-                "call-id" to callId,
-                "statusCode" to "480",
-                "statusString" to "No post-answer RTP before BYE",
-                "remoteNoMediaRelease" to "true",
-            )
-        }
-
-        return mapOf("call-id" to callId)
-    }
+    ): Map<String, String> = SipRemoteEndExtrasBuilder.build(
+        logTag = TAG,
+        callId = callId,
+        isBye = isBye,
+        isOutgoingCall = terminatedCall?.outgoing == true,
+        outgoingConnectedNotified = terminatedCall?.outgoingConnectedNotified?.get() == true,
+    )
 
     fun handleCancel(request: SipRequest): Int {
         val callId = request.callIdOrEmpty()
@@ -3165,18 +3077,7 @@ a=sendrecv
             // Important for tel: URIs: without <> the appended ;tag can be parsed as a TEL URI
             // parameter instead of a SIP To header parameter, and the network may ignore our 200 OK.
             val localToTag = randomBytes(6).toHex()
-            fun addToHeaderTag(header: String, tag: String): String {
-                val h = header.trim()
-                if (h.contains(";tag=", ignoreCase = true)) return h
-                if (h.contains(">")) return "$h;tag=$tag"
-                if (h.startsWith("sip:", ignoreCase = true) ||
-                    h.startsWith("sips:", ignoreCase = true) ||
-                    h.startsWith("tel:", ignoreCase = true)) {
-                    return "<$h>;tag=$tag"
-                }
-                return "$h;tag=$tag"
-            }
-            val toWithTag = request.headers["to"]!!.map { h -> addToHeaderTag(h, localToTag) }
+            val toWithTag = request.headers["to"]!!.map { h -> SipHeaderTagger.addTag(h, localToTag) }
             Rlog.d(TAG, "Incoming To header normalized/tagged: ${request.headers["to"]!!} -> $toWithTag")
 
             val myHeaders = commonHeaders + //Require: precondition
