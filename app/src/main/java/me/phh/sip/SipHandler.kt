@@ -3,6 +3,7 @@ package me.phh.sip
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.database.ContentObserver
 import android.media.*
 import android.net.*
 import android.os.Handler
@@ -54,6 +55,22 @@ class SipHandler(val ctxt: Context) {
     @Suppress("DEPRECATION")
     private val imei = telephonyManager.getDeviceId(activeSubscription.simSlotIndex)
     private val subId = activeSubscription.subscriptionId
+
+    private val simInfoUri = Uri.parse("content://telephony/siminfo")
+    @Volatile private var observedWfcEnabled: Boolean? = null
+private val wfcSubscriptionObserver = object : ContentObserver(myHandler) {
+        override fun onChange(selfChange: Boolean) {
+            handleWfcSubscriptionSettingChanged("siminfo observer")
+        }
+
+        override fun onChange(selfChange: Boolean, uri: Uri?) {
+            handleWfcSubscriptionSettingChanged("siminfo observer uri=$uri")
+        }
+    }
+
+    init {
+        registerWfcSubscriptionObserver()
+    }
     private val mcc = telephonyManager.simOperator.substring(0 until 3)
     private var mnc =
         telephonyManager.simOperator.substring(3).let { if (it.length == 2) "0$it" else it }
@@ -170,6 +187,7 @@ class SipHandler(val ctxt: Context) {
     var imsFailureCallback: (() -> Unit)? = null
     var imsRegisteringCallback: ((Int) -> Unit)? = null
     private var imsRegistrationTech = REGISTRATION_TECH_LTE
+    private var pendingCellularReconnectAfterWfcDisable = false
     private val smsHandler = SipSmsHandler(
         tag = TAG,
         ctxt = ctxt,
@@ -327,8 +345,8 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
         Rlog.w(TAG, "Closing SIP transports: $reason")
         closeBounded("plainSocket") { if (this::plainSocket.isInitialized) plainSocket.close() }
         closeBounded("socket") { if (this::socket.isInitialized) socket.close() }
-        closeBounded("TCP server") { if (this::serverSocket.isInitialized) serverSocket.serverSocket.close() }
-        closeBounded("UDP server") { if (this::serverSocketUdp.isInitialized) serverSocketUdp.socket.close() }
+        closeBounded("TCP server") { if (this::serverSocket.isInitialized) serverSocket.close() }
+        closeBounded("UDP server") { if (this::serverSocketUdp.isInitialized) serverSocketUdp.close() }
     }
 
 
@@ -435,6 +453,32 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
         closeSipTransports(reason)
         closeIpsecResources(reason)
     }
+    fun onWfcDisabled(reason: String) {
+        myHandler.post {
+            if (pendingCellularReconnectAfterWfcDisable) {
+                Rlog.w(TAG, "Ignoring duplicate WFC disabled notification while waiting for cellular IMS link: $reason")
+                return@post
+            }
+
+            val currentTech = imsRegistrationTech
+            if (!imsReady || currentTech != REGISTRATION_TECH_IWLAN) {
+                Rlog.d(
+                    TAG,
+                    "Ignoring WFC disabled notification while not registered over IWLAN: " +
+                        "$reason ready=$imsReady tech=${registrationTechName(currentTech)}",
+                )
+                return@post
+            }
+
+            val dropReason = "WFC disabled while registered over IWLAN: $reason"
+            Rlog.w(TAG, "Pre-dropping IWLAN IMS without immediate reconnect: $dropReason")
+            pendingCellularReconnectAfterWfcDisable = true
+            reconnectController.invalidatePendingReconnects(dropReason)
+            dropImsConnection(dropReason)
+            abandonnedBecauseOfNoPcscf = false
+        }
+    }
+
 
     
     private fun ratName(rat: Int): String =
@@ -447,17 +491,79 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
         imsNetworkRequestRestarter.schedule(reason, initialDelayMs)
     }
 
+
+    private fun readWfcEnabledSubscriptionProperty(): Boolean? {
+        return try {
+            ctxt.contentResolver.query(
+                simInfoUri,
+                arrayOf("_id", "wfc_ims_enabled"),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                val idColumn = cursor.getColumnIndex("_id")
+                val wfcColumn = cursor.getColumnIndex("wfc_ims_enabled")
+                if (idColumn < 0 || wfcColumn < 0) {
+                    Rlog.w(TAG, "siminfo is missing WFC columns id=$idColumn wfc=$wfcColumn")
+                    return null
+                }
+                while (cursor.moveToNext()) {
+                    if (cursor.getInt(idColumn) == subId) {
+                        return cursor.getInt(wfcColumn) == 1
+                    }
+                }
+                Rlog.w(TAG, "No siminfo row found for subId=$subId while checking WFC")
+                null
+            }
+        } catch (t: Throwable) {
+            Rlog.d(TAG, "Reading WFC subscription property failed", t)
+            null
+        }
+    }
+
+    private fun registerWfcSubscriptionObserver() {
+        observedWfcEnabled = readWfcEnabledSubscriptionProperty()
+        Rlog.d(TAG, "Initial WFC subscription setting enabled=$observedWfcEnabled")
+        try {
+            ctxt.contentResolver.registerContentObserver(simInfoUri, true, wfcSubscriptionObserver)
+            Rlog.d(TAG, "Registered WFC subscription setting observer")
+        } catch (t: Throwable) {
+            Rlog.d(TAG, "Registering WFC subscription setting observer failed", t)
+        }
+    }
+
+    private fun handleWfcSubscriptionSettingChanged(reason: String) {
+        val enabled = readWfcEnabledSubscriptionProperty() ?: return
+        val old = observedWfcEnabled
+        observedWfcEnabled = enabled
+        if (old == enabled) return
+        Rlog.d(TAG, "WFC subscription setting changed old=$old enabled=$enabled reason=$reason")
+        if (old == true && !enabled) {
+            onWfcDisabled(reason)
+        }
+    }
+
     private fun shouldReconnectAfterSipTransportLoss(reason: String): Boolean {
+        if (pendingCellularReconnectAfterWfcDisable) {
+            Rlog.w(
+                TAG,
+                "Suppressing IMS reconnect for $reason because WFC-disabled IWLAN pre-drop is waiting for cellular IMS",
+            )
+            return false
+        }
         if (reconnectController.isReconnecting()) {
             Rlog.w(TAG, "Suppressing IMS reconnect for $reason because a controlled IMS reconnect is already running")
             return false
         }
-
         if (!this::network.isInitialized) {
             Rlog.w(TAG, "Suppressing IMS reconnect for $reason because no IMS network is initialized")
             return false
         }
-        val lp = try { connectivityManager.getLinkProperties(network) } catch (t: Throwable) { null }
+        val lp = try {
+            connectivityManager.getLinkProperties(network)
+        } catch (t: Throwable) {
+            null
+        }
         if (lp == null) {
             Rlog.w(TAG, "Suppressing IMS reconnect for $reason because current IMS network has no link properties")
             scheduleImsNetworkRequestRestart("SIP transport lost with stale IMS network: $reason")
@@ -465,6 +571,7 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
         }
         return true
     }
+
 
 private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         reconnectController.scheduleReconnectRetry(reason, delayMs)
@@ -704,36 +811,30 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
             }
             if (shouldReconnectAfterSipTransportLoss("main/control SIP socket lost")) reconnectIms("main/control SIP socket lost")
         }
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                while (true) {
-                    var client: Socket? = null
+                CoroutineScope(Dispatchers.IO).launch {
                     try {
-                        // there can only be a single client at a time because
-                        // both source and destination ports are fixed
-                        client = serverSocket.serverSocket.accept()
-                        val reader = client.getInputStream().sipReader()
-                        val writer = client.getOutputStream()
-                        while (parseMessage(reader, writer)) {
+                        while (true) {
+                            val accepted = serverSocket.accept()
+                            try {
+                                while (parseMessage(accepted.reader, accepted.writer)) {
+                                }
+                            } catch (t: Throwable) {
+                                if (serverSocket.serverSocket.isClosed) {
+                                    throw t
+                                }
+                                Rlog.w(TAG, "Got exception in accepted TCP server SIP flow; keeping IMS server socket alive", t)
+                            } finally {
+                                serverSocket.closeAccepted(accepted.socket)
+                            }
                         }
-                    } catch (t: Throwable) {
-                        if (serverSocket.serverSocket.isClosed) {
-                            throw t
-                        }
-                        Rlog.w(TAG, "Got exception in accepted TCP server SIP flow; keeping IMS server socket alive", t)
-                    } finally {
-                        try {
-                            client?.close()
-                        } catch (t: Throwable) {
-                            Rlog.d(TAG, "Closing accepted TCP server SIP flow failed", t)
+                    } catch(t: Throwable) {
+                        Rlog.w(TAG, "Got exception in TCP server socket, reconnecting", t)
+                        if (shouldReconnectAfterSipTransportLoss("TCP server SIP socket lost")) {
+                            reconnectIms("TCP server SIP socket lost")
                         }
                     }
                 }
-            } catch(t: Throwable) {
-                Rlog.w(TAG, "Got exception in TCP server socket, reconnecting", t)
-                if (shouldReconnectAfterSipTransportLoss("TCP server SIP socket lost")) reconnectIms("TCP server SIP socket lost")
-            }
-        }
+
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val bufferIn = ByteArray(128 * 1024)
@@ -820,8 +921,7 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
                     val newLocalAddr = getImsLocalAddress(linkProperties)
                     val newPcscfAddr = pcscfs.firstOrNull()
                     Rlog.d(TAG, "Got pcscfs $pcscfs local=$newLocalAddr")
-
-                    if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
+if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                         // Switch to this network if it has P-CSCF (could be a different bearer).
                         reconnectIms("P-CSCF appeared after previous no-P-CSCF state", _network)
                         return
@@ -833,6 +933,35 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
                     val oldPcscfAddr = if (this@SipHandler::pcscfAddr.isInitialized) pcscfAddr else null
                     val oldRegistrationTech = imsRegistrationTech
                     val newRegistrationTech = detectRegistrationTech(linkProperties)
+
+                    if (pendingCellularReconnectAfterWfcDisable) {
+                        val iface = linkProperties.interfaceName ?: ""
+                        if (newRegistrationTech == REGISTRATION_TECH_IWLAN || iface.startsWith("ipsec")) {
+                            Rlog.w(
+                                TAG,
+                                "Pending WFC-disable cellular reconnect; ignoring still-IWLAN IMS link " +
+                                    "interface=$iface tech=${registrationTechName(newRegistrationTech)}",
+                            )
+                            return
+                        }
+                        if (newLocalAddr == null || newPcscfAddr == null) {
+                            Rlog.w(
+                                TAG,
+                                "Pending WFC-disable cellular reconnect; waiting for usable cellular IMS link " +
+                                    "interface=$iface local=$newLocalAddr pcscf=$newPcscfAddr",
+                            )
+                            return
+                        }
+
+                        pendingCellularReconnectAfterWfcDisable = false
+                        reconnectIms(
+                            "cellular IMS link after WFC disabled interface=$iface " +
+                                "tech=${registrationTechName(newRegistrationTech)} local=$newLocalAddr pcscf=$newPcscfAddr",
+                            _network,
+                            delayMs = 1_000L,
+                        )
+                        return
+                    }
 
                     val networkChanged = network != _network
                     val localChanged = oldLocalAddr != null && newLocalAddr != null && oldLocalAddr != newLocalAddr

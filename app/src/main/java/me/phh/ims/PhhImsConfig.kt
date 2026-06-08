@@ -9,16 +9,16 @@ import android.telephony.ims.stub.ImsConfigImplBase
 class PhhImsConfig() : ImsConfigImplBase() {
     companion object {
         private const val TAG = "PHH ImsConfig"
-    }
+}
 
     val intMap = HashMap<Int, Int>()
     val strMap = HashMap<Int, String>()
+override @SetConfigResult fun setConfig(item: Int, value: Int): Int {
+ Rlog.d(TAG, "setConfig $item $value")
 
-    override @SetConfigResult fun setConfig(item: Int, value: Int): Int {
-        Rlog.d(TAG, "setConfig $item $value")
-        intMap.put(item, value)
-        return ImsConfigImplBase.CONFIG_RESULT_SUCCESS
-    }
+ intMap.put(item, value)
+return ImsConfigImplBase.CONFIG_RESULT_SUCCESS
+ }
     override @SetConfigResult fun setConfig(item: Int, value: String): Int {
         Rlog.d(TAG, "setConfig $item $value")
         strMap.put(item, value)

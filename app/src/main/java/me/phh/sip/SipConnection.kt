@@ -26,6 +26,75 @@ import java.nio.channels.spi.SelectorProvider
 
 /* wrapper around sockets + establish ipsec tunnel given ipsec helpers */
 private const val SIP_TCP_CONNECT_TIMEOUT_MS = 10_000
+private const val SIP_IPSEC_CLEANUP_TAG = "PHH SipConnection"
+
+private fun closeQuietly(label: String, close: () -> Unit) {
+    try {
+        close()
+    } catch (t: Throwable) {
+        Rlog.d(SIP_IPSEC_CLEANUP_TAG, "Failed to close $label", t)
+    }
+}
+
+private fun abortTcpSocketFirst(socket: Socket, label: String) {
+    // On Samsung IWLAN fallback, IpSecService.deleteTunnelInterface() can hold the
+    // global IpSecService monitor for minutes. If we call removeTransportModeTransforms()
+    // first, this close path can block behind that monitor and the still-open TCP socket
+    // keeps the dying ipsecX netdev referenced. Force the TCP fd closed first, then try
+    // to detach/deactivate transforms best-effort afterwards.
+    closeQuietly("$label setSoLinger(0)") { socket.setSoLinger(true, 0) }
+    closeQuietly("$label shutdownOutput") { socket.shutdownOutput() }
+    closeQuietly("$label shutdownInput") { socket.shutdownInput() }
+    closeQuietly(label) { socket.close() }
+}
+
+private fun closeUdpSocketFirst(socket: DatagramSocket, label: String) {
+    closeQuietly(label) { socket.close() }
+}
+
+
+private fun removeTcpTransportModeTransforms(
+    ipSecManager: IpSecManager?,
+    socket: Socket,
+    label: String,
+) {
+    val manager = ipSecManager ?: return
+    try {
+        Rlog.d(SIP_IPSEC_CLEANUP_TAG, "Removing IPsec transforms from $label")
+        manager.removeTransportModeTransforms(socket)
+    } catch (t: Throwable) {
+        Rlog.d(SIP_IPSEC_CLEANUP_TAG, "Failed to remove IPsec transforms from $label", t)
+    }
+}
+
+private fun removeUdpTransportModeTransforms(
+    ipSecManager: IpSecManager?,
+    socket: DatagramSocket,
+    label: String,
+) {
+    val manager = ipSecManager ?: return
+    try {
+        Rlog.d(SIP_IPSEC_CLEANUP_TAG, "Removing IPsec transforms from $label")
+        manager.removeTransportModeTransforms(socket)
+    } catch (t: Throwable) {
+        Rlog.d(SIP_IPSEC_CLEANUP_TAG, "Failed to remove IPsec transforms from $label", t)
+    }
+}
+
+private fun removeFdTransportModeTransforms(
+    ipSecManager: IpSecManager?,
+    socketFd: FileDescriptor,
+    label: String,
+) {
+    val manager = ipSecManager ?: return
+    try {
+        Rlog.d(SIP_IPSEC_CLEANUP_TAG, "Removing IPsec transforms from $label")
+        manager.removeTransportModeTransforms(socketFd)
+    } catch (t: Throwable) {
+        Rlog.d(SIP_IPSEC_CLEANUP_TAG, "Failed to remove IPsec transforms from $label", t)
+    }
+}
+
 
 interface SipConnection {
     fun close()
@@ -60,6 +129,9 @@ class SipConnectionTcp(
     // gets destroyed while still in use
     lateinit var inTransform: IpSecTransform
     lateinit var outTransform: IpSecTransform
+
+    private var ipSecManager: IpSecManager? = null
+
     var connected = false
 
     init {
@@ -101,7 +173,14 @@ class SipConnectionTcp(
     }
 
     override fun close() {
-        socket.close()
+        abortTcpSocketFirst(socket, "TCP client socket")
+        removeTcpTransportModeTransforms(ipSecManager, socket, "TCP client socket")
+        if (this::inTransform.isInitialized) {
+            closeQuietly("TCP client inTransform") { inTransform.close() }
+        }
+        if (this::outTransform.isInitialized) {
+            closeQuietly("TCP client outTransform") { outTransform.close() }
+        }
     }
 
     override fun enableIpsec(
@@ -112,6 +191,7 @@ class SipConnectionTcp(
     ) {
         // Can only do this before connecting?
         check(!connected)
+        this.ipSecManager = ipSecManager
         inTransform = ipSecBuilder.buildTransportModeTransform(remoteAddr, clientSpiC)
         ipSecManager.applyTransportModeTransform(socket, IpSecManager.DIRECTION_IN, inTransform)
         outTransform = ipSecBuilder.buildTransportModeTransform(localAddr, serverSpiS)
@@ -134,6 +214,10 @@ class SipConnectionTcpServer(
     lateinit var inTransform: IpSecTransform
     lateinit var outTransform: IpSecTransform
 
+    private var ipSecManager: IpSecManager? = null
+    private val acceptedClients = java.util.concurrent.CopyOnWriteArrayList<Socket>()
+
+
     init {
         serverSocket = ServerSocket()
         serverSocket.bind(InetSocketAddress(localAddr, localPort))
@@ -143,9 +227,26 @@ class SipConnectionTcpServer(
         network.bindSocket(serverSocketFd)
     }
 
-    fun accept(): Pair<SipReader, OutputStream> {
+    data class AcceptedTcpSipFlow(
+        val socket: Socket,
+        val reader: SipReader,
+        val writer: OutputStream,
+    )
+
+    fun accept(): AcceptedTcpSipFlow {
         val client = serverSocket.accept()
-        return Pair(client.getInputStream().sipReader(), client.getOutputStream())
+        acceptedClients.add(client)
+        return AcceptedTcpSipFlow(
+            socket = client,
+            reader = client.getInputStream().sipReader(),
+            writer = client.getOutputStream(),
+        )
+    }
+
+    fun closeAccepted(client: Socket) {
+        abortTcpSocketFirst(client, "TCP server accepted socket")
+        removeTcpTransportModeTransforms(ipSecManager, client, "TCP server accepted socket")
+        acceptedClients.remove(client)
     }
 
     fun enableIpsec(
@@ -153,6 +254,7 @@ class SipConnectionTcpServer(
         inTransform: IpSecTransform,
         outTransform: IpSecTransform
     ) {
+        this.ipSecManager = ipSecManager
         this.inTransform = inTransform
         ipSecManager.applyTransportModeTransform(
             serverSocketFd,
@@ -165,6 +267,25 @@ class SipConnectionTcpServer(
             IpSecManager.DIRECTION_OUT,
             outTransform
         )
+    }
+
+        fun close() {
+        val clients = acceptedClients.toList()
+        for (client in clients) {
+            abortTcpSocketFirst(client, "TCP server accepted socket")
+        }
+        acceptedClients.clear()
+        closeQuietly("TCP server listen socket") { serverSocket.close() }
+        removeFdTransportModeTransforms(ipSecManager, serverSocketFd, "TCP server listen socket")
+        for (client in clients) {
+            removeTcpTransportModeTransforms(ipSecManager, client, "TCP server accepted socket")
+        }
+        if (this::inTransform.isInitialized) {
+            closeQuietly("TCP server inTransform") { inTransform.close() }
+        }
+        if (this::outTransform.isInitialized) {
+            closeQuietly("TCP server outTransform") { outTransform.close() }
+        }
     }
 
     fun getChannel(): SelectableChannel {
@@ -189,6 +310,9 @@ class SipConnectionUdp(
     // gets destroyed while still in use
     lateinit var inTransform: IpSecTransform
     lateinit var outTransform: IpSecTransform
+
+    private var ipSecManager: IpSecManager? = null
+
     var connected = false
 
     init {
@@ -272,7 +396,14 @@ class SipConnectionUdp(
     }
 
     override fun close() {
-        socket.close()
+        closeUdpSocketFirst(socket, "UDP client socket")
+        removeUdpTransportModeTransforms(ipSecManager, socket, "UDP client socket")
+        if (this::inTransform.isInitialized) {
+            closeQuietly("UDP client inTransform") { inTransform.close() }
+        }
+        if (this::outTransform.isInitialized) {
+            closeQuietly("UDP client outTransform") { outTransform.close() }
+        }
     }
 
     override fun enableIpsec(
@@ -283,6 +414,7 @@ class SipConnectionUdp(
     ) {
         // Can only do this before connecting?
         check(!connected)
+        this.ipSecManager = ipSecManager
         inTransform = ipSecBuilder.buildTransportModeTransform(remoteAddr, clientSpiC)
         ipSecManager.applyTransportModeTransform(socket, IpSecManager.DIRECTION_IN, inTransform)
         outTransform = ipSecBuilder.buildTransportModeTransform(localAddr, serverSpiS)
@@ -304,6 +436,9 @@ class SipConnectionUdpServer(
     val socketFd : FileDescriptor
     lateinit var inTransform: IpSecTransform
     lateinit var outTransform: IpSecTransform
+
+    private var ipSecManager: IpSecManager? = null
+
     init {
         val channel = DatagramChannel.open(if(remoteAddr is Inet6Address) StandardProtocolFamily.INET6 else StandardProtocolFamily.INET)
         channel.bind(InetSocketAddress(localAddr, localPort))
@@ -353,6 +488,7 @@ class SipConnectionUdpServer(
         inTransform: IpSecTransform,
         outTransform: IpSecTransform
     ) {
+        this.ipSecManager = ipSecManager
         this.inTransform = inTransform
         ipSecManager.applyTransportModeTransform(
             socketFd,
@@ -365,6 +501,18 @@ class SipConnectionUdpServer(
             IpSecManager.DIRECTION_OUT,
             outTransform
         )
+    }
+
+        fun close() {
+        closeUdpSocketFirst(socket, "UDP server socket")
+        removeUdpTransportModeTransforms(ipSecManager, socket, "UDP server socket")
+        removeFdTransportModeTransforms(ipSecManager, socketFd, "UDP server fd")
+        if (this::inTransform.isInitialized) {
+            closeQuietly("UDP server inTransform") { inTransform.close() }
+        }
+        if (this::outTransform.isInitialized) {
+            closeQuietly("UDP server outTransform") { outTransform.close() }
+        }
     }
 
     fun getChannel(): SelectableChannel {
