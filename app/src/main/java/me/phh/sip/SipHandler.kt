@@ -2273,6 +2273,52 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         }
     }
 
+    private fun completeIncomingPreconditionAnswerSdp(answerSdp: ByteArray, callId: String): ByteArray {
+        val lines = answerSdp
+            .toString(Charsets.UTF_8)
+            .split("[\r\n]+".toRegex())
+            .filter { it.isNotBlank() }
+
+        val hasPrecondition = lines.any { line ->
+            line.startsWith("a=curr:qos", ignoreCase = true) ||
+                line.startsWith("a=des:qos", ignoreCase = true) ||
+                line.startsWith("a=conf:qos", ignoreCase = true)
+        }
+        if (!hasPrecondition) return answerSdp
+
+        val rewritten = lines.map { line ->
+            when {
+                line.startsWith("a=curr:qos local", ignoreCase = true) -> "a=curr:qos local sendrecv"
+                line.startsWith("a=curr:qos remote", ignoreCase = true) -> "a=curr:qos remote sendrecv"
+                line.startsWith("a=des:qos optional local", ignoreCase = true) -> "a=des:qos mandatory local sendrecv"
+                line.startsWith("a=des:qos optional remote", ignoreCase = true) -> "a=des:qos mandatory remote sendrecv"
+                line.startsWith("a=des:qos mandatory local", ignoreCase = true) -> "a=des:qos mandatory local sendrecv"
+                line.startsWith("a=des:qos mandatory remote", ignoreCase = true) -> "a=des:qos mandatory remote sendrecv"
+                line.startsWith("a=conf:qos remote", ignoreCase = true) -> "a=conf:qos remote sendrecv"
+                line.equals("a=inactive", ignoreCase = true) -> "a=sendrecv"
+                line.equals("a=sendonly", ignoreCase = true) -> "a=sendrecv"
+                line.equals("a=recvonly", ignoreCase = true) -> "a=sendrecv"
+                else -> line
+            }
+        }.let { mapped ->
+            val withConf = if (mapped.any { it.startsWith("a=conf:qos remote", ignoreCase = true) }) {
+                mapped
+            } else {
+                mapped + "a=conf:qos remote sendrecv"
+            }
+            if (withConf.any { it.equals("a=sendrecv", ignoreCase = true) }) {
+                withConf
+            } else {
+                withConf + "a=sendrecv"
+            }
+        }
+
+        if (rewritten != lines) {
+            Rlog.d(TAG, "Completing incoming final 200 OK precondition SDP: callId=$callId")
+        }
+        return rewritten.joinToString("\r\n").toByteArray(Charsets.US_ASCII)
+    }
+
     fun acceptCall() {
         thread {
             var call = currentCall
@@ -2302,22 +2348,45 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
             prAckWaitTracker.dropStaleBeforeAccept(TAG)
 
             Rlog.d(TAG, "Accepting call")
-            val myHeaders = call.callHeaders
-            val myHeaders3 = myHeaders - "rseq" - "security-verify" - "p-access-network-info" + """
-                Session-Expires: 1800;refresher=uas
-                Contact: ${call.callHeaders["contact"]!!.first()}
-                Content-Type: application/sdp
-                Content-Length: ${call.sdp.size}
-                """.toSipHeadersMap()
+            val omitFinalSdp = call.hasEarlyMedia
+            if (!omitFinalSdp) {
+                val finalIncomingSdp = completeIncomingPreconditionAnswerSdp(call.sdp, acceptedCallId)
+                if (!finalIncomingSdp.contentEquals(call.sdp)) {
+                    call = call.copy(sdp = finalIncomingSdp)
+                    currentCall = call
+                }
+            } else {
+                Rlog.d(
+                    TAG,
+                    "Omitting SDP from final incoming 200 OK because reliable provisional/UPDATE offer-answer already completed " +
+                        "callId=$acceptedCallId",
+                )
+            }
 
-            // Normally we shouldn't send again the SDP. With "precondition" feature flag, the SDP in 183 Session Progress (then updated in UPDATE) should be used instead
-            // But for some yet unknown reason, I need to do it (even though it contradicts my pcaps)
+            val myHeaders = call.callHeaders
+            val finalBody = if (!omitFinalSdp) call.sdp else ByteArray(0)
+            val finalSdpHeaders = if (!omitFinalSdp) {
+                """
+                Content-Type: application/sdp
+                Content-Length: ${finalBody.size}
+                """.toSipHeadersMap()
+            } else {
+                "Content-Length: 0".toSipHeadersMap()
+            }
+            val myHeaders3 =
+                myHeaders - "rseq" - "security-verify" - "p-access-network-info" - "content-type" - "content-length" +
+                    """
+                    Session-Expires: 1800;refresher=uas
+                    Contact: ${call.callHeaders["contact"]!!.first()}
+                    """.toSipHeadersMap() +
+                    finalSdpHeaders
+
             val msg3 =
                 SipResponse(
                     statusCode = 200,
                     statusString = "OK",
                     headersParam = myHeaders3,
-                    body = call.sdp,
+                    body = finalBody,
                     autofill = false
                 )
             val responseWriter = call.incomingResponseWriter ?: socket.gWriter()
@@ -3710,13 +3779,40 @@ a=sendrecv
         }
 
         val peerSupportsEarlyMedia = request.headers["p-early-media"]?.isNotEmpty() == true
-        // S9/O2 test mode: do not send a reliable incoming 183 yet. The tested network
-        // did not PRACK it, so accepting the call stalled until the remote side cancelled.
-        val sendReliable183 = false
-        val callerSupportsPrecondition = (request.headers["supported"].orEmpty() +
-                request.headers["require"].orEmpty()).any { it.contains("precondition") }
+        val callerCapabilityHeaders =
+            request.headers["supported"].orEmpty() + request.headers["require"].orEmpty()
+        val callerSupports100Rel = callerCapabilityHeaders
+            .any { it.contains("100rel", ignoreCase = true) }
+        val callerSupportsPreconditionHeader = callerCapabilityHeaders
+            .any { it.contains("precondition", ignoreCase = true) }
+        val incomingOfferHasPrecondition = attributes.any { attr ->
+            attr.startsWith("curr:qos", ignoreCase = true) ||
+                attr.startsWith("des:qos", ignoreCase = true) ||
+                attr.startsWith("conf:qos", ignoreCase = true)
+        }
+        val incomingOfferIsInactive = attributes.any { it.equals("inactive", ignoreCase = true) }
+        val callerSupportsPrecondition = callerSupportsPreconditionHeader || incomingOfferHasPrecondition
+        // Some carriers send incoming VoLTE as inactive media with mandatory QoS
+        // preconditions and will not open downlink RTP until the provisional SDP is
+        // acknowledged with PRACK. Keep the old plain-180 path for simple incoming
+        // offers because at least one tested network did not PRACK reliable 183.
+        val sendReliable183 =
+            callerSupports100Rel &&
+                callerSupportsPrecondition &&
+                incomingOfferHasPrecondition &&
+                incomingOfferIsInactive
         val remoteMaxptime = attributes.firstOrNull { it.startsWith("maxptime:") } ?: "maxptime:20"
-        Rlog.d(TAG, "Incoming early-media support=$peerSupportsEarlyMedia sendReliable183=$sendReliable183 callerSupportsPrecondition=$callerSupportsPrecondition remoteMaxptime=$remoteMaxptime")
+        Rlog.d(
+            TAG,
+            "Incoming early-media support=$peerSupportsEarlyMedia " +
+                "sendReliable183=$sendReliable183 " +
+                "supports100rel=$callerSupports100Rel " +
+                "callerSupportsPrecondition=$callerSupportsPrecondition " +
+                "headerPrecondition=$callerSupportsPreconditionHeader " +
+                "sdpPrecondition=$incomingOfferHasPrecondition " +
+                "inactiveOffer=$incomingOfferIsInactive " +
+                "remoteMaxptime=$remoteMaxptime",
+        )
 
         val selectedAudioCodec = selectIncomingSpeechCodecFromOffer(
             sdp = sdp,
@@ -3801,9 +3897,15 @@ a=sendrecv
                 "a=fmtp:$dtmfTrack 0-15"
             )
             if (callerSupportsPrecondition) {
+                val incomingCurrentQos = if (sendReliable183) "none" else "sendrecv"
+                Rlog.d(
+                    TAG,
+                    "Incoming precondition SDP answer: callId=$incomingCallId " +
+                        "sendReliable183=$sendReliable183 curr=$incomingCurrentQos",
+                )
                 sdpLines += listOf(
-                    "a=curr:qos local none",
-                    "a=curr:qos remote none",
+                    "a=curr:qos local $incomingCurrentQos",
+                    "a=curr:qos remote $incomingCurrentQos",
                     "a=des:qos mandatory local sendrecv",
                     "a=des:qos mandatory remote sendrecv",
                     "a=conf:qos remote sendrecv"
@@ -3878,7 +3980,7 @@ a=sendrecv
                         headersParam = myHeaders,
                         body = mySdp
                     )
-                Rlog.d(TAG, "Sending $msg on incoming request flow")
+                Rlog.d(TAG, "Sending reliable incoming 183 for precondition offer: $msg")
                 synchronized(incomingResponseWriter) { incomingResponseWriter.write(msg.toByteArray()) }
                 waitPrack(mySeqCounter)
             } else {
