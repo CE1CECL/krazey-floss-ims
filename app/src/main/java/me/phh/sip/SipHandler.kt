@@ -1353,6 +1353,10 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         }
 
         val attributes = sdp.filter { it.startsWith("a=") }.map { it.substring(2) }
+        logRemoteAudioCodecCandidates(
+            context = "remote SDP ${request.method} callId=${request.callIdOrEmpty()}",
+            sdp = sdp,
+        )
 
         fun trackRequirements(track: Int): String? {
             return attributes.firstOrNull { it.startsWith("fmtp:$track") }
@@ -3066,6 +3070,150 @@ a=sendrecv
 
     private val prAckWaitTracker = PrackWaitTracker()
 
+
+    private data class RemoteAudioCodecCandidate(
+        val payload: Int,
+        val codec: String,
+        val rate: Int?,
+        val channels: String?,
+        val fmtp: String,
+        val offeredOrder: Int,
+    )
+
+    private fun parseRemoteAudioCodecCandidates(sdp: List<String>): List<RemoteAudioCodecCandidate> {
+        val mediaPayloads = sdp.firstOrNull { it.startsWith("m=audio ") }
+            ?.split("\\s+".toRegex())
+            ?.drop(3)
+            ?.mapNotNull { it.toIntOrNull() }
+            .orEmpty()
+        val offeredOrder = mediaPayloads.withIndex().associate { it.value to it.index }
+
+        val attributes = sdp.mapNotNull { line ->
+            when {
+                line.startsWith("a=") -> line.substring(2)
+                line.startsWith("rtpmap:", ignoreCase = true) -> line
+                line.startsWith("fmtp:", ignoreCase = true) -> line
+                else -> null
+            }
+        }
+        val fmtpByPayload = attributes
+            .filter { it.startsWith("fmtp:", ignoreCase = true) }
+            .mapNotNull { fmtp ->
+                val payload = fmtp.substringAfter("fmtp:")
+                    .substringBefore(" ")
+                    .substringBefore("\t")
+                    .toIntOrNull()
+                    ?: return@mapNotNull null
+                payload to fmtp
+            }
+            .toMap()
+
+        val rtpmapRegex = "^rtpmap:(\\d+)\\s+([^/\\s]+)/(\\d+)(?:/([^\\s]+))?.*".toRegex(
+            RegexOption.IGNORE_CASE,
+        )
+
+        return attributes
+            .filter { it.startsWith("rtpmap:", ignoreCase = true) }
+            .mapNotNull { rtpmap ->
+                val match = rtpmapRegex.matchEntire(rtpmap) ?: return@mapNotNull null
+                val payload = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
+                val codec = match.groupValues[2].uppercase()
+                val rate = match.groupValues[3].toIntOrNull()
+                val channels = match.groupValues.getOrNull(4)?.ifBlank { null }
+                RemoteAudioCodecCandidate(
+                    payload = payload,
+                    codec = codec,
+                    rate = rate,
+                    channels = channels,
+                    fmtp = fmtpByPayload[payload].orEmpty(),
+                    offeredOrder = offeredOrder[payload] ?: Int.MAX_VALUE,
+                )
+            }
+            .sortedBy { it.offeredOrder }
+    }
+
+    private fun remoteAudioCodecCandidateRank(candidate: RemoteAudioCodecCandidate): Int {
+        val fmtp = candidate.fmtp
+        val octetAligned = fmtp.contains("octet-align=1", ignoreCase = true)
+        return when {
+            candidate.codec == "EVS" -> 600 + ((candidate.rate ?: 0) / 1000)
+            candidate.codec == "AMR-WB" && candidate.rate == 16000 && octetAligned -> 520
+            candidate.codec == "AMR-WB" && candidate.rate == 16000 -> 500
+            candidate.codec == "AMR" && candidate.rate == 8000 && !octetAligned -> 300
+            candidate.codec == "AMR" && candidate.rate == 8000 -> 250
+            candidate.codec == "PCMA" && candidate.rate == 8000 -> 210
+            candidate.codec == "PCMU" && candidate.rate == 8000 -> 200
+            candidate.codec == "TELEPHONE-EVENT" -> 0
+            else -> 50
+        }
+    }
+
+    private fun describeRemoteAudioCodecCandidate(candidate: RemoteAudioCodecCandidate): String {
+        val flags = mutableListOf<String>()
+        if (candidate.fmtp.contains("octet-align=1", ignoreCase = true)) {
+            flags += "octet-align"
+        }
+        if (candidate.codec == "AMR" && candidate.rate == 8000 &&
+            !candidate.fmtp.contains("octet-align=1", ignoreCase = true)
+        ) {
+            flags += "implemented-now"
+        }
+        return buildString {
+            append(candidate.payload)
+            append(" ")
+            append(candidate.codec)
+            append("/")
+            append(candidate.rate ?: -1)
+            candidate.channels?.let {
+                append("/")
+                append(it)
+            }
+            append(" order=")
+            append(candidate.offeredOrder)
+            append(" rank=")
+            append(remoteAudioCodecCandidateRank(candidate))
+            if (flags.isNotEmpty()) {
+                append(" flags=")
+                append(flags.joinToString(","))
+            }
+            if (candidate.fmtp.isNotBlank()) {
+                append(" fmtp={")
+                append(candidate.fmtp)
+                append("}")
+            }
+        }
+    }
+
+    private fun logRemoteAudioCodecCandidates(context: String, sdp: List<String>) {
+        val candidates = parseRemoteAudioCodecCandidates(sdp)
+        if (candidates.isEmpty()) {
+            Rlog.w(TAG, "$context remote audio codec candidates: none parsed from SDP")
+            return
+        }
+
+        val implementedNowPayloads = candidates
+            .filter {
+                it.codec == "AMR" &&
+                    it.rate == 8000 &&
+                    !it.fmtp.contains("octet-align=1", ignoreCase = true)
+            }
+            .map { it.payload }
+
+        val futureRanked = candidates
+            .sortedWith(
+                compareByDescending<RemoteAudioCodecCandidate> {
+                    remoteAudioCodecCandidateRank(it)
+                }.thenBy { it.offeredOrder },
+            )
+            .joinToString(" | ") { describeRemoteAudioCodecCandidate(it) }
+
+        Rlog.d(
+            TAG,
+            "$context remote audio codec candidates futureRanked=$futureRanked " +
+                "implementedNowPayloads=$implementedNowPayloads",
+        )
+    }
+
     private fun handleInDialogInvite(request: SipRequest, call: Call, responseWriter: OutputStream): Int {
         val callId = request.callIdOrEmpty()
         val cseq = request.headers["cseq"]?.getOrNull(0).orEmpty()
@@ -3083,6 +3231,10 @@ a=sendrecv
         val rtpRemoteAddr = InetAddress.getByName(rtpRemote)
         val rtpRemotePort = sdpMedia.split(" ").getOrNull(1)?.toIntOrNull() ?: return 488
         val attributes = sdp.filter { it.startsWith("a=") }.map { it.substring(2) }
+        logRemoteAudioCodecCandidates(
+            context = "remote SDP ${request.method} callId=${request.callIdOrEmpty()}",
+            sdp = sdp,
+        )
 
         fun lookTrackMatching(codec: String, notAdditional: String = ""): Pair<Int, String>? {
             val maps = attributes.filter { it.startsWith("rtpmap") && it.contains(codec) }
@@ -3265,6 +3417,10 @@ a=sendrecv
         val rtpRemotePort = sdpMedia!!.split(" ")[1] //m=audio 30798 RTP/AVP 96 97 98 8 18 101 100 99
 
         val attributes = sdp.filter { it.startsWith("a=") }.map { it.substring(2)}
+        logRemoteAudioCodecCandidates(
+            context = "remote SDP ${request.method} callId=${request.callIdOrEmpty()}",
+            sdp = sdp,
+        )
 
         fun lookTrackMatching(codec: String, additional: String = "", notAdditional: String = ""): Pair<Int,String>? {
             //TODO: also match on fmtp
