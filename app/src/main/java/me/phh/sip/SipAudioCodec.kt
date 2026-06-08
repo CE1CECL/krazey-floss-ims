@@ -13,8 +13,6 @@ internal data class NegotiatedAudioCodec(
     val bitRate: Int,
     val frameDurationMs: Int,
     val rtpTimestampStep: Int,
-    val storageFrameSizeBytes: Int,
-    val prefersOctetAlignedRtp: Boolean,
 )
 
 internal object SipAudioCodecs {
@@ -31,8 +29,6 @@ internal object SipAudioCodecs {
         bitRate = 12200,
         frameDurationMs = 20,
         rtpTimestampStep = 160,
-        storageFrameSizeBytes = 32,
-        prefersOctetAlignedRtp = false,
     )
 
     // Future HD Voice target. This profile is intentionally not selected yet;
@@ -48,10 +44,6 @@ internal object SipAudioCodecs {
         bitRate = 12650,
         frameDurationMs = 20,
         rtpTimestampStep = 320,
-        // Enough for one AMR-WB storage-format frame at the highest mode:
-        // one frame header plus octet-padded speech bits.
-        storageFrameSizeBytes = 61,
-        prefersOctetAlignedRtp = false,
     )
 }
 

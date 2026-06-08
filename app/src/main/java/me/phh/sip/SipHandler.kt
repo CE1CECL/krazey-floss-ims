@@ -1676,20 +1676,12 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                 val timestamp = rtpTimestampSamples.getAndAdd(audioCodec.rtpTimestampStep)
                 Thread.sleep(20)
                 val sendCall = currentCall ?: call
-                val rtpHeader = listOf(
-                    // RTP
-                    0x80, //rtp version
-                    sendCall.amrTrack, //payload type
-                    (sequenceNumber shr 8), (sequenceNumber and 0xff),
-                    (timestamp shr 24), ((timestamp shr 16) and 0xff), ((timestamp shr 8) and 0xff), (timestamp and 0xff),
-                    0x03, 0x00, 0xd2, 0x00, //SSRC
+                val buf = SipAmrRtpPayload.buildNoDataRtpPacket(
+                    audioCodec = audioCodec,
+                    payloadType = sendCall.amrTrack,
+                    sequenceNumber = sequenceNumber,
+                    timestamp = timestamp,
                 )
-                val amrNothing = listOf(0x77, 0xc0) // CMR = 12.2kbps, F=0, FT=15=No TX/No RX, Q=1
-
-                val buf = (rtpHeader + amrNothing).map { it.toByte() }.toByteArray()
-
-                val dgramPacket =
-                    DatagramPacket(buf, buf.size, sendCall.rtpRemoteAddr, sendCall.rtpRemotePort)
                 try {
                     if (!sendRtpPacket(sendCall.rtpSocket, buf, sendCall.rtpRemoteAddr, sendCall.rtpRemotePort, "RTP packet #$sequenceNumber")) throw IOException("RTP send failed")
                 } catch (e: Exception) {
@@ -1728,22 +1720,12 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
             
                     val timestamp = rtpTimestampSamples.getAndAdd(audioCodec.rtpTimestampStep)
                     val sendCall = currentCall ?: call
-                    val rtpHeader = listOf(
-                        0x80,
-                        sendCall.amrTrack,
-                        sequenceNumber shr 8,
-                        sequenceNumber and 0xff,
-                        timestamp shr 24,
-                        (timestamp shr 16) and 0xff,
-                        (timestamp shr 8) and 0xff,
-                        timestamp and 0xff,
-                        0x03,
-                        0x00,
-                        0xd2,
-                        0x00,
+                    val buf = SipAmrRtpPayload.buildNoDataRtpPacket(
+                        audioCodec = audioCodec,
+                        payloadType = sendCall.amrTrack,
+                        sequenceNumber = sequenceNumber,
+                        timestamp = timestamp,
                     )
-                    val amrNothing = listOf(0x77, 0xc0)
-                    val buf = (rtpHeader + amrNothing).map { it.toByte() }.toByteArray()
                     try {
                         if (!sendRtpPacket(sendCall.rtpSocket, buf, sendCall.rtpRemoteAddr, sendCall.rtpRemotePort, "incoming RTP settle silence #$sequenceNumber")) {
                             throw IOException("RTP send failed")
@@ -1877,51 +1859,31 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
 
                     var bufPos = 0
                     while (bufPos < outBufInfo.size) {
-                        val frameSize = audioCodec.storageFrameSizeBytes
+                        val ft = (encoderData[bufPos].toUByte().toInt() shr 3) and 0xf
+                        val frameSize = SipAmrRtpPayload.storageFrameSizeBytes(audioCodec, ft)
+                        if (frameSize == null) {
+                            Rlog.w(TAG, "Skipping encoder frame with unsupported AMR FT=$ft codec=${audioCodec.name}")
+                            break
+                        }
                         if (outBufInfo.size - bufPos < frameSize) break
 
-                        // Encoder outputs octet-aligned AMR-NB frames (RFC 4867 §5):
-                        //   byte 0 = frame header: [0][FT[3:0]][Q][PP]
-                        //   bytes 1-31 = 244 payload bits, MSB-first, 4 bits zero-padding at end
-                        val ft = (encoderData[bufPos].toUByte().toInt() shr 3) and 0xf
-                        val q  = (encoderData[bufPos].toUByte().toInt() shr 2) and 0x1
-
-                        // Build RFC 4867 §4.4 bandwidth-efficient single-frame payload (32 bytes):
-                        //   [CMR(4)][F(1)][FT(4)][Q(1)][payload_bits(244)][pad(2)]
-                        // CMR=15 (0xF) = no codec-mode request; F=0 = last (only) frame.
-                        val cmr = 0xf
-                        val f   = 0
-                        // Byte 0: CMR[3:0] | F | FT[3:1]
-                        val beByte0 = (cmr shl 4) or (f shl 3) or (ft shr 1)
-                        // Byte 1: FT[0] | Q | payload[0:5]  (upper 6 bits of encoder byte 1)
-                        val beByte1 = ((ft and 1) shl 7) or (q shl 6) or
-                                      (encoderData[bufPos + 1].toUByte().toInt() shr 2)
-                        // Bytes 2-31: slide a 2-bit window across encoder bytes 1-31
-                        val beRest = (1 until frameSize - 1).map { i ->
-                            val lo = (encoderData[bufPos + i].toUByte().toInt() and 0x3) shl 6
-                            val hi = (encoderData[bufPos + i + 1].toUByte().toInt() shr 2) and 0x3f
-                            lo or hi
-                        }
-
-                        // Every 20 ms, at 8 kHz, we have 160 samples
                         val sequenceNumber = rtpSequenceNumber.getAndIncrement()
                         val timestamp = rtpTimestampSamples.getAndAdd(audioCodec.rtpTimestampStep)
                         val sendCall = currentCall ?: break
-                        val rtpHeader = byteArrayOf(
-                            0x80.toByte(),
-                            ((if (firstPacket) 0x80 else 0) or sendCall.amrTrack).toByte(),
-                            (sequenceNumber shr 8).toByte(), (sequenceNumber and 0xff).toByte(),
-                            (timestamp shr 24).toByte(), ((timestamp shr 16) and 0xff).toByte(),
-                            ((timestamp shr 8) and 0xff).toByte(), (timestamp and 0xff).toByte(),
-                            0x03, 0x00, 0xd2.toByte(), 0x00
+                        val storageFrame = encoderData.copyOfRange(bufPos, bufPos + frameSize)
+                        val buf = SipAmrRtpPayload.buildBandwidthEfficientRtpPacketFromStorageFrame(
+                            audioCodec = audioCodec,
+                            payloadType = sendCall.amrTrack,
+                            sequenceNumber = sequenceNumber,
+                            timestamp = timestamp,
+                            storageFrame = storageFrame,
+                            marker = firstPacket,
                         )
+                        if (buf == null) {
+                            Rlog.w(TAG, "Failed to build AMR RTP packet: codec=${audioCodec.name} ft=$ft frameSize=$frameSize")
+                            break
+                        }
                         firstPacket = false
-
-                        val buf = rtpHeader +
-                            byteArrayOf(beByte0.toByte(), beByte1.toByte()) +
-                            beRest.map { it.toByte() }.toByteArray()
-
-                        val dgramPacket = DatagramPacket(buf, buf.size, sendCall.rtpRemoteAddr, sendCall.rtpRemotePort)
                         try {
                             if (!sendRtpPacket(sendCall.rtpSocket, buf, sendCall.rtpRemoteAddr, sendCall.rtpRemotePort, "RTP packet #$sequenceNumber")) throw IOException("RTP send failed")
                             if (realFrameCount < 10) {
@@ -2985,7 +2947,7 @@ a=sendrecv
                 // only decoded FT=7, which made calls silent whenever the network switched
                 // to a lower AMR mode such as FT=2.
                 val pt = dgramBuf[1].toUByte().toInt() and 0x7f
-                val amrFrame = amrNbFrameFromBandwidthEfficientRtp(dgramBuf, dgram.length)
+                val amrFrame = SipAmrRtpPayload.storageFrameFromBandwidthEfficientRtp(audioCodec, dgramBuf, dgram.length)
                 val ftForLog = amrFrame?.ft ?: 15
 
                 if (receivedCount <= 10 || receivedCount % 50 == 0) {
