@@ -497,6 +497,19 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
     }
 
 
+    private fun hasActiveOrPendingCallForImsReconnectDeferral(): Boolean {
+        return currentCall != null || pendingOutgoingInvite != null
+    }
+
+    private fun activeOrPendingCallSummaryForReconnectDeferral(): String {
+        val active = currentCall
+        val activeCallId = active?.callHeaders?.get("call-id")?.getOrNull(0)
+        val pendingCallId = pendingOutgoingInvite?.callId
+        return "activeCallId=$activeCallId activeOutgoing=${active?.outgoing} " +
+            "pendingOutgoingCallId=$pendingCallId callStarted=${callStarted.get()}"
+    }
+
+
     var abandonnedBecauseOfNoPcscf = false
     @Synchronized
     fun connect() {
@@ -860,6 +873,19 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                     val localChanged = oldLocalAddr != null && newLocalAddr != null && oldLocalAddr != newLocalAddr
                     val pcscfChanged = oldPcscfAddr != null && newPcscfAddr != null && oldPcscfAddr != newPcscfAddr
                     val techChanged = imsReady && oldRegistrationTech != newRegistrationTech
+                    val techOnlyChanged = techChanged && !networkChanged && !localChanged && !pcscfChanged
+
+                    if (techOnlyChanged && hasActiveOrPendingCallForImsReconnectDeferral()) {
+                        Rlog.w(
+                            TAG,
+                            "Deferring tech-only IMS reconnect while SIP call is active or pending: " +
+                                "oldTech=${registrationTechName(oldRegistrationTech)} " +
+                                "newTech=${registrationTechName(newRegistrationTech)} " +
+                                "interface=${linkProperties.interfaceName} " +
+                                activeOrPendingCallSummaryForReconnectDeferral(),
+                        )
+                        return
+                    }
 
                     if (networkChanged || localChanged || pcscfChanged || techChanged) {
                         reconnectIms(
