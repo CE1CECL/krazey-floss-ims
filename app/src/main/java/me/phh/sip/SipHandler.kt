@@ -1546,10 +1546,16 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         val isCancel = request.method == SipMethod.CANCEL
         val isBye = request.method == SipMethod.BYE
 
-        // RFC 3261 §9.2: CANCEL has no effect if we already sent a final response (200 OK).
-        // BYE, however, is still a real established-dialog termination.
+        // RFC 3261 §9.2: CANCEL has no effect if we already sent a final response
+        // for the INVITE. Reply 200 OK to the CANCEL transaction, but keep the
+        // dialog/runtime alive until the final ACK or a real BYE arrives.
+        //
+        // Some networks can race a late CANCEL against our final 200 OK. Clearing
+        // currentCall here makes the local UI drop immediately even though the
+        // dialog has already been answered and the remote side will usually send
+        // a BYE to terminate the established dialog.
         if (isCancel && incomingFinalResponseSent.get()) {
-            Rlog.d(TAG, "CANCEL received after final 200 OK was sent — replying 200 to CANCEL and clearing pending incoming dialog")
+            Rlog.d(TAG, "CANCEL received after final 200 OK was sent — replying 200 to CANCEL and keeping answered dialog")
             val toOverride = currentCall?.callHeaders?.get("to") ?: request.headers["to"]
             val responseHeaders = responseHeadersFromRequest(
                 request,
@@ -1566,11 +1572,6 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
             val cancelResponseWriter = dispatcher.writerForCallId(callId) ?: currentCall?.incomingResponseWriter ?: socket.gWriter()
             synchronized(cancelResponseWriter) { cancelResponseWriter.write(response.toByteArray()) }
 
-            stopCallRuntime("call cleanup")
-            incomingAcceptedAwaitingAck.set(false)
-            incomingHangupAfterAck.set(false)
-            currentCall = null
-            onCancelledCall?.invoke(Object(), "", mapOf("call-id" to callId))
             return 0
         }
 
