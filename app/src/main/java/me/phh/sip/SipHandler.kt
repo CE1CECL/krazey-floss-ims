@@ -1965,6 +1965,7 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
         thread {
             rtpSequenceNumber.set(0)
             rtpTimestampSamples.set(0)
+            rtpDtmfTimestampSamples.set(0)
             Rlog.d(TAG, "Encode thread started: codec=${audioCodec.name}/${audioCodec.sampleRate} amrTrack=${call.amrTrack} remote=${call.rtpRemoteAddr}:${call.rtpRemotePort} gen=$gen")
             val encoder = MediaCodec.createEncoderByType(audioCodec.mimeType)
             val mediaFormat = MediaFormat.createAudioFormat(
@@ -3499,6 +3500,26 @@ a=sendrecv
         }
     }
 
+    private fun allocateDtmfTimestampSamples(audioCodec: NegotiatedAudioCodec, durationMs: Int): Int {
+        val safeDurationMs = durationMs.coerceAtLeast(160)
+        // One telephone-event uses one fixed timestamp for all repeats, but the
+        // next digit must not reuse that timestamp. Keep at least one event
+        // duration plus 40ms between synthetic timestamps when media is stalled.
+        val minimumStepSamples = ((safeDurationMs + 40) * audioCodec.sampleRate) / 1000
+        while (true) {
+            val mediaTimestamp = rtpTimestampSamples.get()
+            val previousDtmfTimestamp = rtpDtmfTimestampSamples.get()
+            val candidate = if (previousDtmfTimestamp <= 0) {
+                mediaTimestamp.coerceAtLeast(audioCodec.rtpTimestampStep)
+            } else {
+                maxOf(mediaTimestamp, previousDtmfTimestamp + minimumStepSamples)
+            }
+            if (rtpDtmfTimestampSamples.compareAndSet(previousDtmfTimestamp, candidate)) {
+                return candidate
+            }
+        }
+    }
+
     fun sendDtmf(c: Char, durationMs: Int = 160) {
         val call = currentCall
         if (call == null) {
@@ -3523,8 +3544,9 @@ a=sendrecv
             try {
                 // RFC 4733 telephone-event. Keep one RTP timestamp for the whole event,
                 // increase duration, and repeat the final packet with the E bit set.
-                val timestamp = rtpTimestampSamples.get()
-                val durationSamples = durationMs.coerceAtLeast(160) * 8
+                val dtmfCall = currentCall ?: call
+                val timestamp = allocateDtmfTimestampSamples(dtmfCall.audioCodec, durationMs)
+                val durationSamples = (durationMs.coerceAtLeast(160) * dtmfCall.audioCodec.sampleRate) / 1000
                 val steps = listOf(
                     durationSamples / 4,
                     durationSamples / 2,
@@ -3533,7 +3555,7 @@ a=sendrecv
                     durationSamples,
                     durationSamples,
                 )
-                Rlog.d(TAG, "Sending RTP DTMF event=$event char=$c payload=${call.dtmfTrack} durationMs=$durationMs timestamp=$timestamp sequenceBase=${rtpSequenceNumber.get()} remote=${call.rtpRemoteAddr}:${call.rtpRemotePort}")
+                Rlog.d(TAG, "Sending RTP DTMF event=$event char=$c payload=${dtmfCall.dtmfTrack} durationMs=$durationMs timestamp=$timestamp sequenceBase=${rtpSequenceNumber.get()} remote=${dtmfCall.rtpRemoteAddr}:${dtmfCall.rtpRemotePort}")
                 for ((index, duration) in steps.withIndex()) {
                     val sendCall = currentCall ?: return@thread
                     val sequenceNumber = rtpSequenceNumber.getAndIncrement()
@@ -3570,6 +3592,9 @@ a=sendrecv
     val callGeneration = AtomicInteger(0)
     private val rtpSequenceNumber = AtomicInteger(0)
     private val rtpTimestampSamples = AtomicInteger(0)
+    // PhhIms DTMF timestamp guard: each telephone-event digit must get a
+    // fresh RTP timestamp even if the normal uplink encoder timestamp stalls.
+    private val rtpDtmfTimestampSamples = AtomicInteger(0)
 
     private val prAckWaitTracker = PrackWaitTracker()
 
