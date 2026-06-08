@@ -157,6 +157,10 @@ class SipHandler(val ctxt: Context) {
 
     private val outgoingConnectedCallIds = java.util.Collections.newSetFromMap(
         java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    )
+
+    private val outgoingConnectedDuplicateLogKeys = java.util.Collections.newSetFromMap(
+        java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     ) 
     private var imsReady = false
     var imsReadyCallback: (() -> Unit)? = null
@@ -1434,6 +1438,17 @@ a=sendrecv
 
     var currentCall: Call? = null
     private var pendingOutgoingInvite: PendingOutgoingInvite? = null
+    private fun logDuplicateOutgoingConnectedOnce(callId: String, reason: String) {
+        val key = "${callId.ifBlank { "<blank>" }}|$reason"
+        if (!outgoingConnectedDuplicateLogKeys.add(key)) return
+
+        if (callId.isBlank()) {
+            logDuplicateOutgoingConnectedOnce("", reason)
+        } else {
+            logDuplicateOutgoingConnectedOnce(callId, reason)
+        }
+    }
+
     private fun maybeNotifyOutgoingCallConnected(call: Call, reason: String) {
         if (!call.outgoing) return
 
@@ -1457,13 +1472,13 @@ a=sendrecv
 
         if (callId.isBlank()) {
             if (!call.outgoingConnectedNotified.compareAndSet(false, true)) {
-                Rlog.d(TAG, "Suppress duplicate outgoing connected callback without Call-ID reason=$reason")
+                logDuplicateOutgoingConnectedOnce("", reason)
                 return
             }
         } else {
             if (!outgoingConnectedCallIds.add(callId)) {
                 call.outgoingConnectedNotified.set(true)
-                Rlog.d(TAG, "Suppress duplicate outgoing connected callback callId=$callId reason=$reason")
+                logDuplicateOutgoingConnectedOnce(callId, reason)
                 return
             }
             call.outgoingConnectedNotified.set(true)
@@ -1678,7 +1693,14 @@ a=sendrecv
         closeRtpSocket: Boolean = false,
         reason: String,
     ) {
-        if (!reason.startsWith("final INVITE answer")) callId?.let { outgoingConnectedCallIds.remove(it) }
+        if (!reason.startsWith("final INVITE answer")) {
+            callId?.let {
+                outgoingConnectedCallIds.remove(it)
+                outgoingConnectedDuplicateLogKeys.removeAll(
+                    outgoingConnectedDuplicateLogKeys.filter { key -> key.startsWith("$it|") },
+                )
+            }
+        }
         val pending = pendingOutgoingInvite ?: return
         if (callId != null && pending.callId != callId) return
 
