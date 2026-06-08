@@ -171,6 +171,7 @@ class SipHandler(
     private var pendingImsReconnectAfterActiveCallReason: String? = null
     
     private var imsNetworkCallback: ConnectivityManager.NetworkCallback? = null
+    private val sipReaderGeneration = AtomicInteger(0)
 private val smsHandler = SipSmsHandler(
         tag = TAG,
         ctxt = ctxt,
@@ -335,6 +336,8 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
 
     private fun closeSipTransports(reason: String) {
         Rlog.w(TAG, "Closing SIP transports: $reason")
+        val newGeneration = sipReaderGeneration.incrementAndGet()
+        Rlog.w(TAG, "Invalidated SIP reader generation=$newGeneration while closing transports: $reason")
         BoundedCloser.close(TAG, "plainSocket") { if (this::plainSocket.isInitialized) plainSocket.close() }
         BoundedCloser.close(TAG, "socket") { if (this::socket.isInitialized) socket.close() }
         BoundedCloser.close(TAG, "TCP server") { if (this::serverSocket.isInitialized) serverSocket.close() }
@@ -726,24 +729,49 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         // - connection to server socket
         // Start both in threads as we're only called here from network callback from which
         // it's better to return.
-        startMainSipReaderLoop()
-        startTcpServerSipReaderLoop()
-        startUdpServerSipReaderLoop()
+        val readerGeneration = sipReaderGeneration.incrementAndGet()
+        Rlog.d(TAG, "Starting SIP reader loops generation=$readerGeneration")
+
+        startMainSipReaderLoop(readerGeneration)
+        startTcpServerSipReaderLoop(readerGeneration)
+        startUdpServerSipReaderLoop(readerGeneration)
     }
 
-    private fun startMainSipReaderLoop() {
+    private fun isStaleSipReaderLoop(readerGeneration: Int, reason: String): Boolean {
+        val currentGeneration = sipReaderGeneration.get()
+        if (readerGeneration == currentGeneration) {
+            return false
+        }
+
+        Rlog.w(
+            TAG,
+            "Ignoring stale SIP reader event generation=$readerGeneration " +
+                "currentGeneration=$currentGeneration: $reason",
+        )
+        return true
+    }
+
+    private fun startMainSipReaderLoop(readerGeneration: Int) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                while (parseMessage(socket.gReader(), socket.gWriter())) { }
+                while (parseMessage(socket.gReader(), socket.gWriter())) {
+                }
                 Rlog.w(TAG, "Main socket got EOF, reconnecting")
-            } catch(t: Throwable) {
+            } catch (t: Throwable) {
                 Rlog.w(TAG, "Got exception in main/control socket, reconnecting", t)
             }
-            if (shouldReconnectAfterSipTransportLoss("main/control SIP socket lost")) reconnectIms("main/control SIP socket lost")
+
+            if (isStaleSipReaderLoop(readerGeneration, "main/control SIP socket lost")) {
+                return@launch
+            }
+
+            if (shouldReconnectAfterSipTransportLoss("main/control SIP socket lost")) {
+                reconnectIms("main/control SIP socket lost")
+            }
         }
     }
 
-    private fun startTcpServerSipReaderLoop() {
+    private fun startTcpServerSipReaderLoop(readerGeneration: Int) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 while (true) {
@@ -760,8 +788,13 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
                         serverSocket.closeAccepted(accepted.socket)
                     }
                 }
-            } catch(t: Throwable) {
+            } catch (t: Throwable) {
                 Rlog.w(TAG, "Got exception in TCP server socket, reconnecting", t)
+
+                if (isStaleSipReaderLoop(readerGeneration, "TCP server SIP socket lost")) {
+                    return@launch
+                }
+
                 if (shouldReconnectAfterSipTransportLoss("TCP server SIP socket lost")) {
                     reconnectIms("TCP server SIP socket lost")
                 }
@@ -769,25 +802,33 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         }
     }
 
-    private fun startUdpServerSipReaderLoop() {
+    private fun startUdpServerSipReaderLoop(readerGeneration: Int) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val bufferIn = ByteArray(128 * 1024)
                 val dgramPacketIn = DatagramPacket(bufferIn, bufferIn.size)
                 val writer = ByteArrayOutputStream()
+
                 while (true) {
                     dgramPacketIn.length = bufferIn.size
                     serverSocketUdp.socket.receive(dgramPacketIn)
                     Rlog.d(TAG, "Received dgram packet")
+
                     val baIs = ByteArrayInputStream(dgramPacketIn.data, dgramPacketIn.offset, dgramPacketIn.length)
                     val reader = baIs.sipReader()
-                    while (parseMessage(reader, writer)) { }
+                    while (parseMessage(reader, writer)) {
+                    }
+
                     val writerOut = writer.toByteArray()
                     val dgramPacketOut = DatagramPacket(writerOut, writerOut.size, dgramPacketIn.address, dgramPacketIn.port)
                     serverSocketUdp.socket.send(dgramPacketOut)
                     writer.reset()
                 }
-            } catch(t: Throwable) {
+            } catch (t: Throwable) {
+                if (isStaleSipReaderLoop(readerGeneration, "UDP server SIP socket lost")) {
+                    return@launch
+                }
+
                 Rlog.d(TAG, "Got exception in UDP server socket", t)
             }
         }
