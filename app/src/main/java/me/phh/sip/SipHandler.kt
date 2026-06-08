@@ -6,6 +6,7 @@ import android.media.*
 import android.net.*
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.SystemClock
 import android.telephony.Rlog
 import android.telephony.TelephonyManager
 import android.telephony.ims.stub.ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN
@@ -32,6 +33,7 @@ class SipHandler(
         private const val UPLINK_GAIN_RO_PROPERTY = "ro.phhims.uplink_gain_q8"
         private const val UPLINK_GAIN_UNSET_Q8 = 0
         private const val UPLINK_GAIN_UNITY_Q8 = 256
+        private const val INCOMING_ACCEPT_IMS_ACCESS_CHANGE_GUARD_MS = 1_200L
     }
 
     val myHandler = Handler(HandlerThread("PhhMmTelFeature").apply { start() }.looper)
@@ -342,6 +344,10 @@ class SipHandler(
     private var imsRegistrationTech = REGISTRATION_TECH_LTE
     private var pendingCellularReconnectAfterWfcDisable = false
     private var pendingImsReconnectAfterActiveCallReason: String? = null
+    @Volatile
+    private var lastImsAccessChangeUptimeMs: Long = 0L
+    @Volatile
+    private var lastImsAccessChangeReason: String = ""
     
     private var imsNetworkCallback: ConnectivityManager.NetworkCallback? = null
     private val sipReaderGeneration = AtomicInteger(0)
@@ -795,6 +801,59 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
             "generation=${callGeneration.get()}"
     }
 
+    private fun hasPendingIncomingCallForAcceptGuard(): Boolean {
+        val call = currentCall ?: return false
+        return !call.outgoing && !callStarted.get()
+    }
+
+    private fun noteImsAccessChangeDuringPendingIncomingCall(reason: String) {
+        if (!hasPendingIncomingCallForAcceptGuard()) {
+            return
+        }
+
+        lastImsAccessChangeUptimeMs = SystemClock.uptimeMillis()
+        lastImsAccessChangeReason = reason
+        Rlog.w(
+            TAG,
+            "Observed IMS access change while incoming call is pending: " +
+                "$reason " + activeOrPendingCallSummaryForReconnectDeferral(),
+        )
+    }
+
+    private fun delayIncomingAcceptAfterRecentImsAccessChange(callId: String): Boolean {
+        val elapsedMs = SystemClock.uptimeMillis() - lastImsAccessChangeUptimeMs
+        val remainingMs = INCOMING_ACCEPT_IMS_ACCESS_CHANGE_GUARD_MS - elapsedMs
+        if (remainingMs <= 0L) {
+            return true
+        }
+
+        Rlog.w(
+            TAG,
+            "Delaying incoming final 200 OK while IMS access change settles: " +
+                "callId=$callId delayMs=$remainingMs lastChange=$lastImsAccessChangeReason",
+        )
+
+        try {
+            Thread.sleep(remainingMs)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return false
+        }
+
+        val call = currentCall
+        val stillSameIncomingCall = call != null && !call.outgoing && call.callIdOrEmpty() == callId
+        if (!stillSameIncomingCall) {
+            Rlog.w(
+                TAG,
+                "Incoming call changed/cancelled while waiting for IMS access guard; " +
+                    "not sending final 200 OK callId=$callId current=${call?.callIdOrEmpty()} outgoing=${call?.outgoing}",
+            )
+            return false
+        }
+
+        return true
+    }
+
 
     var abandonnedBecauseOfNoPcscf = false
     @Synchronized
@@ -1158,6 +1217,15 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
                     networkCapabilities: NetworkCapabilities
                 ) {
                     Rlog.d(TAG, "IMS network capabilities changed $networkCapabilities")
+                    if (
+                        this@SipHandler::network.isInitialized &&
+                            network == this@SipHandler.network &&
+                            hasPendingIncomingCallForAcceptGuard()
+                    ) {
+                        noteImsAccessChangeDuringPendingIncomingCall(
+                            "IMS network capabilities changed caps=$networkCapabilities",
+                        )
+                    }
                 }
 
                 override fun onLosing(network: Network, maxMsToLive: Int) {
@@ -1222,13 +1290,16 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                     val techOnlyChanged = techChanged && !networkChanged && !localChanged && !pcscfChanged
 
                     if (techOnlyChanged && hasActiveOrPendingCallForImsReconnectDeferral()) {
+                        val deferredReason = "tech-only IMS link changed during call: " +
+                            "oldTech=${registrationTechName(oldRegistrationTech)} " +
+                            "newTech=${registrationTechName(newRegistrationTech)} " +
+                            "interface=${linkProperties.interfaceName}"
+                        pendingImsReconnectAfterActiveCallReason = deferredReason
+                        noteImsAccessChangeDuringPendingIncomingCall(deferredReason)
                         Rlog.w(
                             TAG,
                             "Deferring tech-only IMS reconnect while SIP call is active or pending: " +
-                                "oldTech=${registrationTechName(oldRegistrationTech)} " +
-                                "newTech=${registrationTechName(newRegistrationTech)} " +
-                                "interface=${linkProperties.interfaceName} " +
-                                activeOrPendingCallSummaryForReconnectDeferral(),
+                                deferredReason + " " + activeOrPendingCallSummaryForReconnectDeferral(),
                         )
                         return
                     }
@@ -2164,9 +2235,24 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
 
     fun acceptCall() {
         thread {
-            val call = currentCall
+            var call = currentCall
             if (call == null || call.outgoing) {
                 Rlog.w(TAG, "acceptCall without valid incoming currentCall: $call")
+                return@thread
+            }
+
+            val acceptedCallId = call.callIdOrEmpty()
+            if (!delayIncomingAcceptAfterRecentImsAccessChange(acceptedCallId)) {
+                return@thread
+            }
+
+            call = currentCall
+            if (call == null || call.outgoing || call.callIdOrEmpty() != acceptedCallId) {
+                Rlog.w(
+                    TAG,
+                    "acceptCall aborted after IMS access guard because current call changed: " +
+                        "acceptedCallId=$acceptedCallId current=${call?.callIdOrEmpty()} outgoing=${call?.outgoing}",
+                )
                 return@thread
             }
 
@@ -2195,7 +2281,6 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                     autofill = false
                 )
             val responseWriter = call.incomingResponseWriter ?: socket.gWriter()
-            val acceptedCallId = call.callIdOrEmpty()
             val responseBytes = msg3.toByteArray()
             Rlog.d(TAG, "Sending $msg3 via incomingResponseWriter=${call.incomingResponseWriter != null}")
                 if (!writeSipBytes(responseWriter, responseBytes, "incoming INVITE final 200 OK callId=$acceptedCallId")) {
