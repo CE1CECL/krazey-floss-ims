@@ -38,6 +38,15 @@ class WfcSubscriptionSettingMonitor(
         }
     }
 
+    fun stop() {
+        try {
+            ctxt.contentResolver.unregisterContentObserver(observer)
+            Rlog.d(tag, "Unregistered WFC subscription setting observer for subId=$subId")
+        } catch (t: Throwable) {
+            Rlog.d(tag, "Unregistering WFC subscription setting observer failed", t)
+        }
+    }
+
     private fun readEnabledProperty(): Boolean? {
         return try {
             ctxt.contentResolver.query(

@@ -177,7 +177,9 @@ class SipHandler(
     var imsRegisteringCallback: ((Int) -> Unit)? = null
     private var imsRegistrationTech = REGISTRATION_TECH_LTE
     private var pendingCellularReconnectAfterWfcDisable = false
-    private val smsHandler = SipSmsHandler(
+    
+    private var imsNetworkCallback: ConnectivityManager.NetworkCallback? = null
+private val smsHandler = SipSmsHandler(
         tag = TAG,
         ctxt = ctxt,
         subId = subId,
@@ -209,7 +211,23 @@ class SipHandler(
     var onCancelledCall: ((handle: Object, from: String, extras: Map<String, String>) -> Unit)? =
         null 
 
-    private fun stopCallRuntime(reason: String) {
+    
+    private fun unregisterImsNetworkCallback(reason: String) {
+        val callback = imsNetworkCallback ?: return
+
+        try {
+            connectivityManager.unregisterNetworkCallback(callback)
+            Rlog.w(TAG, "Unregistered IMS NetworkCallback: $reason")
+        } catch (t: Throwable) {
+            Rlog.d(TAG, "Unregistering IMS NetworkCallback failed: $reason", t)
+        }
+
+        if (imsNetworkCallback === callback) {
+            imsNetworkCallback = null
+        }
+    }
+
+private fun stopCallRuntime(reason: String) {
         Rlog.d(TAG, "Stopping call runtime state: $reason")
         callStopped.set(true)
         callStarted.set(false)
@@ -248,6 +266,8 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
     }
 
     fun getRegistrationTech(): Int = imsRegistrationTech
+
+    fun handlesSubscription(candidateSubId: Int): Boolean = subId == candidateSubId
 
     private fun markImsReady(reason: String) {
         if (imsReady) return
@@ -366,6 +386,38 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
         closeSipTransports(reason)
         closeIpsecResources(reason)
     }
+
+    fun shutdown(reason: String, notifyFramework: Boolean = true) {
+        myHandler.post {
+            Rlog.w(
+                TAG,
+                "Shutting down SipHandler for slotId=$slotId subId=$subId: " +
+                    "$reason notifyFramework=$notifyFramework"
+            )
+
+            if (!notifyFramework) {
+                imsFailureCallback = null
+            }
+
+            reconnectController.invalidatePendingReconnects("SipHandler shutdown: $reason")
+            dropImsConnection("SipHandler shutdown: $reason")
+            unregisterImsNetworkCallback("SipHandler shutdown: $reason")
+            wfcSubscriptionSettingMonitor.stop()
+
+            imsReadyCallback = null
+            imsFailureCallback = null
+            imsRegisteringCallback = null
+            onSmsReceived = null
+            onSmsStatusReportReceived = null
+            onIncomingCall = null
+            onOutgoingCallConnected = null
+            onIncomingCallConnected = null
+            onCancelledCall = null
+
+            myHandler.looper.quitSafely()
+        }
+    }
+
     fun onWfcDisabled(reason: String) {
         myHandler.post {
             if (pendingCellularReconnectAfterWfcDisable) {
@@ -727,9 +779,9 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
 
         Rlog.d(TAG, "Built subscription-specific IMS network request $imsNetworkRequest")
 
-        connectivityManager.requestNetwork(
-            imsNetworkRequest,
-            object : ConnectivityManager.NetworkCallback() {
+        unregisterImsNetworkCallback("new IMS network request")
+
+        val callback = object : ConnectivityManager.NetworkCallback() {
                 override fun onUnavailable() {
                     Rlog.d(TAG, "IMS network unavailable")
                 }
@@ -739,6 +791,9 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
                     if (this@SipHandler::network.isInitialized && network == lostNetwork) {
                         try {
                     connectivityManager.unregisterNetworkCallback(this)
+                        if (imsNetworkCallback === this) {
+                            imsNetworkCallback = null
+                        }
                     Rlog.w(TAG, "Unregistered stale IMS NetworkCallback after loss to avoid immediate GERAN IMS APN retry")
                 } catch (t: Throwable) {
                     Rlog.d(TAG, "Unregistering stale IMS NetworkCallback failed", t)
@@ -863,7 +918,9 @@ if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
                     }
                 }
             }
-        )
+
+        imsNetworkCallback = callback
+        connectivityManager.requestNetwork(imsNetworkRequest, callback)
     }
 
     fun updateCommonHeaders(socket: SipConnection) {
