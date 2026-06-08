@@ -17,6 +17,48 @@ package me.phh.sip
  * domains, not arbitrary 3GPP/EPC auth realms.
  */
 object SipRegisterNegotiationPolicy {
+    data class RegisterRealmDecision(
+        val targetRealm: String,
+        val candidateRealm: String,
+        val canonicalRealm: String,
+        val forcedCanonical: Boolean,
+    ) {
+        val usesPromotedChallengeRealm: Boolean
+            get() = !targetRealm.equals(canonicalRealm, ignoreCase = true)
+
+        val hasPromotedCandidate: Boolean
+            get() = !candidateRealm.equals(canonicalRealm, ignoreCase = true)
+    }
+
+    fun registerRealmDecision(
+        defaultRealm: String,
+        challengeRealm: String?,
+        preferCanonicalAfterPromoted494: Boolean,
+    ): RegisterRealmDecision {
+        val candidateRealm = challengedRegistrarRealm(
+            defaultRealm = defaultRealm,
+            challengeRealm = challengeRealm,
+        )
+        val targetRealm =
+            if (preferCanonicalAfterPromoted494) defaultRealm else candidateRealm
+
+        return RegisterRealmDecision(
+            targetRealm = targetRealm,
+            candidateRealm = candidateRealm,
+            canonicalRealm = defaultRealm,
+            forcedCanonical = preferCanonicalAfterPromoted494,
+        )
+    }
+
+    fun shouldRetryCanonicalAfterPromoted494(
+        statusCode: Int?,
+        decision: RegisterRealmDecision,
+        alreadyPreferCanonical: Boolean,
+    ): Boolean =
+        statusCode == 494 &&
+            decision.usesPromotedChallengeRealm &&
+            !alreadyPreferCanonical
+
     private val SAFE_HOST_RE = Regex("^[A-Za-z0-9.-]+$")
     /*
      * Some networks challenge IMS REGISTER with an EPC/AKA realm such as
