@@ -87,7 +87,13 @@ class SipHandler(
         onWfcPreferenceChanged = { reason -> onWfcPreferenceChanged(reason) },
         onAirplaneModeDisabled = { reason -> onAirplaneModeDisabled(reason) },
     ).also { it.start() }
-    private val carrierSettings = SipCarrierSettings.fromSimOperator(subTelephonyManager.simOperator)
+    private val homeOperatorForIms = SipOperatorNumericResolver.resolveHomeOperatorForIms(
+        telephonyManager = subTelephonyManager,
+        activeSubscription = activeSubscription,
+        slotId = slotId,
+        subId = subId,
+    )
+    private val carrierSettings = SipCarrierSettings.fromSimOperator(homeOperatorForIms)
     private val mcc = carrierSettings.mcc
     private val mnc = carrierSettings.mnc
     private val imsi = subTelephonyManager.subscriberId
