@@ -4803,6 +4803,13 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         audioCodec: NegotiatedAudioCodec,
         generation: Int,
     ): DownlinkAudioRuntime {
+        try {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+            Rlog.d(TAG, "Downlink RTP/decode thread priority set to urgent audio")
+        } catch (t: Throwable) {
+            Rlog.w(TAG, "Failed to set downlink RTP/decode thread priority", t)
+        }
+
         Rlog.d(TAG, "Decode thread started: codec=${audioCodec.name}/${audioCodec.sampleRate} gen=$generation")
         val audioManager = ctxt.getSystemService(android.media.AudioManager::class.java)
         val prevDecodeAudioMode = audioManager.mode

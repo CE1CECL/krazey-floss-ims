@@ -19,6 +19,13 @@ object SipDownlinkPcmPlayout {
         generation: Int,
     ): Thread =
         thread(name = "PhhDownlinkPcmPlayout") {
+            try {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+                Rlog.d(logTag, "Downlink PCM playout thread priority set to urgent audio")
+            } catch (t: Throwable) {
+                Rlog.w(logTag, "Failed to set downlink PCM playout thread priority", t)
+            }
+
             var fillerFrames = 0
             var nextWriteAtMs = SystemClock.elapsedRealtime() + 60L
             Rlog.d(logTag, "Downlink PCM playout started: frameBytes=${buffers.frameBytes} codec=${audioCodec.name}/${audioCodec.sampleRate} gen=$generation")
