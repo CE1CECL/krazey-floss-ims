@@ -48,12 +48,22 @@ object SipDownlinkAudioCleanup {
         } catch (t: Throwable) {
             Rlog.d(logTag, "Decoder release failed during decode cleanup", t)
         }
-        SipAudioModeRestorer.restoreAfterImsCall(
-            logTag = logTag,
-            context = context,
-            reason = "decode thread cleanup",
-            previousMode = previousAudioMode,
-        )
-        Rlog.d(logTag, "Decode thread cleanup complete: callStopped=${callStopped.get()} genMismatch=${callGeneration.get() != generation} received=$receivedCount")
+        val stopped = callStopped.get()
+        val genMismatch = callGeneration.get() != generation
+        if (genMismatch) {
+            Rlog.i(
+                logTag,
+                "Skipping audio mode restore from stale decode media generation: " +
+                    "callStopped=$stopped genMismatch=$genMismatch received=$receivedCount",
+            )
+        } else {
+            SipAudioModeRestorer.restoreAfterImsCall(
+                logTag = logTag,
+                context = context,
+                reason = "decode thread cleanup",
+                previousMode = previousAudioMode,
+            )
+        }
+        Rlog.d(logTag, "Decode thread cleanup complete: callStopped=$stopped genMismatch=$genMismatch received=$receivedCount")
     }
 }

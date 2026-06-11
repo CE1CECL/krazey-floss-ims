@@ -46,16 +46,26 @@ object SipUplinkAudioCleanup {
         } catch (t: Throwable) {
             Rlog.d(logTag, "Encoder release failed during encode cleanup", t)
         }
+        val stopped = callStopped.get()
+        val genMismatch = callGeneration.get() != generation
         Rlog.d(
             logTag,
             "Encode thread cleanup complete before audio mode restore: " +
-                "callStopped=${callStopped.get()} genMismatch=${callGeneration.get() != generation}"
+                "callStopped=$stopped genMismatch=$genMismatch"
         )
-        SipAudioModeRestorer.restoreAfterImsCall(
-            logTag = logTag,
-            context = context,
-            reason = "encode thread cleanup",
-            previousMode = previousAudioMode,
-        )
+        if (genMismatch) {
+            Rlog.i(
+                logTag,
+                "Skipping audio mode restore from stale encode media generation: " +
+                    "callStopped=$stopped genMismatch=$genMismatch totalPacketsSent=$totalPacketsSent",
+            )
+        } else {
+            SipAudioModeRestorer.restoreAfterImsCall(
+                logTag = logTag,
+                context = context,
+                reason = "encode thread cleanup",
+                previousMode = previousAudioMode,
+            )
+        }
     }
 }
