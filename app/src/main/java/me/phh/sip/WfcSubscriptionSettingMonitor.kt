@@ -17,7 +17,7 @@ class WfcSubscriptionSettingMonitor(
     handler: Handler,
     private val subId: Int,
     private val onWfcDisabled: (String) -> Unit,
-    private val onWfcPreferenceChanged: (String) -> Unit,
+    private val onWfcPreferenceChanged: (String, Int?, Int?) -> Unit,
     private val onAirplaneModeDisabled: (String) -> Unit,
 ) {
     private data class WfcState(
@@ -100,10 +100,11 @@ class WfcSubscriptionSettingMonitor(
         }
     }
 
-    fun isWifiPreferredOrOnly(): Boolean {
-        val mode = observedWfcMode ?: return false
-        return observedWfcEnabled == true && mode != WIFI_MODE_CELLULAR_PREFERRED
-    }
+    fun isWifiOnly(): Boolean =
+        WfcImsAccessPolicy.isWifiOnly(observedWfcEnabled, observedWfcMode)
+
+    fun isWifiPreferredOrOnly(): Boolean =
+        WfcImsAccessPolicy.isWifiPreferredOrOnly(observedWfcEnabled, observedWfcMode)
 
     fun lastChangeUptimeMs(): Long = lastObservedChangeUptimeMs
 
@@ -161,12 +162,8 @@ class WfcSubscriptionSettingMonitor(
         }
 
         if (oldEnabled == true && enabled && oldMode != state.mode) {
-            onWfcPreferenceChanged(reason)
+            onWfcPreferenceChanged(reason, oldMode, state.mode)
         }
     }
 
-    private companion object {
-        // ImsMmTelManager.WIFI_MODE_CELLULAR_PREFERRED
-        const val WIFI_MODE_CELLULAR_PREFERRED = 1
-    }
 }

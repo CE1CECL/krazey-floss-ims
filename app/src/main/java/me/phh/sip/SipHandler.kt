@@ -58,7 +58,6 @@ class SipHandler(
     }
 
 
-
     private val subscriptionContext = SipSubscriptionContext.resolve(
         ctxt = ctxt,
         telephonyManager = telephonyManager,
@@ -84,7 +83,7 @@ class SipHandler(
         handler = myHandler,
         subId = subId,
         onWfcDisabled = { reason -> onWfcDisabled(reason) },
-        onWfcPreferenceChanged = { reason -> onWfcPreferenceChanged(reason) },
+        onWfcPreferenceChanged = { reason, oldMode, newMode -> onWfcPreferenceChanged(reason, oldMode, newMode) },
         onAirplaneModeDisabled = { reason -> onAirplaneModeDisabled(reason) },
     ).also { it.start() }
     private val homeOperatorForIms = SipOperatorNumericResolver.resolveHomeOperatorForIms(
@@ -536,19 +535,13 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
 
     private fun isWaitingForPreferredImsAccessAfterWfcPreferenceChange(): Boolean {
         val elapsedMs = SystemClock.uptimeMillis() - wfcSubscriptionSettingMonitor.lastChangeUptimeMs()
-        if (elapsedMs !in 0L..IWLAN_CONVERGENCE_OUTGOING_CALL_GUARD_MS) {
-            return false
-        }
-
-        val waitingForIwlan =
-            wfcSubscriptionSettingMonitor.isWifiPreferredOrOnly() &&
-                imsRegistrationTech == REGISTRATION_TECH_LTE
-
-        val waitingForCellular =
-            !wfcSubscriptionSettingMonitor.isWifiPreferredOrOnly() &&
-                imsRegistrationTech == REGISTRATION_TECH_IWLAN
-
-        return waitingForIwlan || waitingForCellular
+        return WfcImsAccessPolicy.isWaitingForRequiredAccessAfterWfcChange(
+            convergenceWindow = elapsedMs in 0L..IWLAN_CONVERGENCE_OUTGOING_CALL_GUARD_MS,
+            wifiOnly = wfcSubscriptionSettingMonitor.isWifiOnly(),
+            wifiPreferredOrOnly = wfcSubscriptionSettingMonitor.isWifiPreferredOrOnly(),
+            registeredOverLte = imsRegistrationTech == REGISTRATION_TECH_LTE,
+            registeredOverIwlan = imsRegistrationTech == REGISTRATION_TECH_IWLAN,
+        )
     }
     fun isReadyForOutgoingCall(): Boolean {
         val baseReady =
@@ -579,10 +572,10 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
         if (isWaitingForPreferredImsAccessAfterWfcPreferenceChange()) {
             val elapsedMs = android.os.SystemClock.uptimeMillis() - wfcSubscriptionSettingMonitor.lastChangeUptimeMs()
             val preferredAccess =
-                if (wfcSubscriptionSettingMonitor.isWifiPreferredOrOnly()) "IWLAN" else "cellular"
+                if (wfcSubscriptionSettingMonitor.isWifiOnly()) "IWLAN" else "cellular"
             Rlog.w(
                 TAG,
-                "Rejecting outgoing call while waiting for preferred IMS access after WFC preference/subscription change: " +
+                "Rejecting outgoing call while waiting for required IMS access after WFC preference/subscription change: " +
                     "preferred=$preferredAccess tech=${registrationTechName(imsRegistrationTech)} elapsedMs=$elapsedMs",
             )
             return false
@@ -927,9 +920,24 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
         }, WFC_WIFI_PREFERRED_IWLAN_READY_RETRY_MS)
     }
 
-    private fun onWfcPreferenceChanged(reason: String) {
+    private fun onWfcPreferenceChanged(reason: String, oldMode: Int?, newMode: Int?) {
         myHandler.post {
             val restartReason = "WFC preference changed: $reason"
+
+            if (WfcImsAccessPolicy.shouldSkipReconnectForWifiModeOnlyChange(
+                    oldMode = oldMode,
+                    newMode = newMode,
+                    imsReady = imsReady,
+                    registeredOverIwlan = imsRegistrationTech == REGISTRATION_TECH_IWLAN,
+                )
+            ) {
+                Rlog.d(
+                    TAG,
+                    "Skipping IMS network request restart for WFC Wi-Fi mode-only change " +
+                        "while already registered on IWLAN: oldMode=$oldMode mode=$newMode reason=$reason",
+                )
+                return@post
+            }
 
             if (wfcSubscriptionSettingMonitor.isWifiPreferredOrOnly()) {
                 restartWhenIwlanReadyAfterWfcWifiPreference(
@@ -947,8 +955,11 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
 fun onWfcDisabled(reason: String) {
         myHandler.post {
             if (pendingCellularReconnectAfterWfcDisable) {
-                Rlog.w(TAG, "Ignoring duplicate WFC disabled notification while waiting for cellular IMS link: $reason")
-                return@post
+                Rlog.w(
+                    TAG,
+                    "WFC disabled notification arrived while already waiting for cellular IMS link; " +
+                        "forcing IMS access refresh anyway: $reason",
+                )
             }
 
             val currentTech = imsRegistrationTech
@@ -1261,6 +1272,7 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         }
         imsRegistrationTech = detectRegistrationTech(lp)
         Rlog.d(TAG, "IMS registration tech ${registrationTechName(imsRegistrationTech)} interface=${lp.interfaceName} caps=${connectivityManager.getNetworkCapabilities(network)}")
+        warnIfCurrentCellularImsEndpointDoesNotMatchWfcPolicy(lp)
         imsRegisteringCallback?.invoke(imsRegistrationTech)
         when (val endpoint = ImsNetworkState.resolveEndpoint(TAG, lp, mnc, mcc)) {
             is ImsNetworkEndpointResolution.Success -> {
@@ -2070,6 +2082,94 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         }
     }
 
+
+    private fun phhIsAirplaneModeOnForImsAccess(): Boolean {
+        return try {
+            android.provider.Settings.Global.getInt(
+                ctxt.contentResolver,
+                android.provider.Settings.Global.AIRPLANE_MODE_ON,
+                0,
+            ) != 0
+        } catch (t: Throwable) {
+            Rlog.d(TAG, "Failed to read airplane mode state for IMS access selection", t)
+            false
+        }
+    }
+
+    private fun phhIsIwlanPsRegisteredForImsAccess(): Boolean {
+        val serviceState = subTelephonyManager.serviceState ?: return false
+        val iwlanInfo = try {
+            serviceState.getNetworkRegistrationInfo(
+                android.telephony.NetworkRegistrationInfo.DOMAIN_PS,
+                android.telephony.AccessNetworkConstants.TRANSPORT_TYPE_WLAN,
+            )
+        } catch (t: Throwable) {
+            Rlog.d(TAG, "Failed to read IWLAN PS registration for IMS access selection", t)
+            null
+        } ?: return false
+
+        return iwlanInfo.isNetworkRegistered &&
+            iwlanInfo.accessNetworkTechnology == TelephonyManager.NETWORK_TYPE_IWLAN
+    }
+
+    private fun phhIsInWfcPreferenceConvergenceWindow(): Boolean {
+        val elapsedMs = SystemClock.uptimeMillis() - wfcSubscriptionSettingMonitor.lastChangeUptimeMs()
+        return elapsedMs in 0L..IWLAN_CONVERGENCE_OUTGOING_CALL_GUARD_MS
+    }
+
+    private fun currentWfcImsAccessSnapshot(): WfcImsAccessPolicy.Snapshot =
+        WfcImsAccessPolicy.Snapshot(
+            wifiOnly = wfcSubscriptionSettingMonitor.isWifiOnly(),
+            wifiPreferredOrOnly = wfcSubscriptionSettingMonitor.isWifiPreferredOrOnly(),
+            iwlanReady = phhIsIwlanPsRegisteredForImsAccess(),
+            airplaneMode = phhIsAirplaneModeOnForImsAccess(),
+            convergenceWindow = phhIsInWfcPreferenceConvergenceWindow(),
+        )
+
+    private fun logWfcImsRequestPolicyIfNeeded() {
+        val snapshot = currentWfcImsAccessSnapshot()
+        if (!WfcImsAccessPolicy.shouldPreferIwlanForImsAccessNow(snapshot)) {
+            return
+        }
+
+        Rlog.w(
+            TAG,
+            "WFC policy currently prefers/requires IWLAN; keeping telephony IMS " +
+                "NetworkRequest on CELLULAR transport so QNS/DataNetwork can select " +
+                "IWLAN internally: ${snapshot.toLogString()}",
+        )
+    }
+
+    private fun warnIfCurrentCellularImsEndpointDoesNotMatchWfcPolicy(lp: LinkProperties) {
+        val snapshot = currentWfcImsAccessSnapshot()
+        if (!WfcImsAccessPolicy.shouldWarnAboutCellularImsMismatch(
+                snapshot = snapshot,
+                registeredOverLte = imsRegistrationTech == REGISTRATION_TECH_LTE,
+            )
+        ) {
+            return
+        }
+
+        Rlog.w(
+            TAG,
+            "WFC policy wants IWLAN but framework supplied LTE IMS; accepting LTE " +
+                "endpoint to avoid keeping IMS permanently unregistered. This means " +
+                "QNS/AccessNetworks did not migrate the IMS APN to IWLAN yet: " +
+                "interface=${lp.interfaceName} " +
+                "${snapshot.toLogString()} " +
+                "caps=${if (this::network.isInitialized) connectivityManager.getNetworkCapabilities(network) else null}",
+        )
+
+        // Do not hard reject LTE here. The IMS NetworkRequest is still a
+        // telephony request and PhhIms cannot force QNS to hand it over to
+        // IWLAN. Rejecting the only satisfied IMS bearer makes Wi-Fi-only mode
+        // loop between LTE data setup and local deregistration forever on
+        // devices/carriers where QNS reports IWLAN registered but does not make
+        // it available for the IMS APN. Keep IMS alive and leave the actual
+        // bearer choice to the framework until the QNS/IWLAN qualification issue
+        // is fixed in telephony/carrier config.
+    }
+
     fun getVolteNetwork() {
         // TODO add something similar for VoWifi ipsec tunnel?
         Rlog.d(TAG, "Requesting IMS network ${imsDualSimDebugContext()}")
@@ -2078,9 +2178,10 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
             scheduleImsNetworkRequestRestart("RAT not ready for IMS network request")
             return
         }
+        logWfcImsRequestPolicyIfNeeded()
         val imsNetworkRequest = ImsNetworkRequestBuilder.buildForSubscription(subId)
 
-        Rlog.d(TAG, "Built subscription-specific IMS network request ${imsDualSimDebugContext("request=$imsNetworkRequest")}")
+        Rlog.d(TAG, "Built subscription-specific IMS network request ${imsDualSimDebugContext("transport=CELLULAR request=$imsNetworkRequest")}")
 
         unregisterImsNetworkCallback("new IMS network request")
 
@@ -2252,25 +2353,6 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
     }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     private fun updateCurrentCallFromUpdateSdp(
         call: Call,
         request: SipRequest,
@@ -2307,8 +2389,6 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         currentCall = updatedCall
         return updatedCall
     }
-
-
 
 
     private data class UpdateSdpAnswerState(
@@ -2589,12 +2669,6 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         val localSdpVersion: AtomicInteger = AtomicInteger(2), val outgoingRtpReceived: AtomicBoolean = AtomicBoolean(false), val outgoingConnectedNotified: AtomicBoolean = AtomicBoolean(false), )
 
     // illegal SDP conservative retry: retry once only when the SBC explicitly rejects the SDP body.
-
-
-
-
-
-
 
 
     private fun retryOutgoingInviteAfterIllegalSdp(
@@ -4512,7 +4586,6 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
     }
 
 
-
     private fun prepareInitialOutgoingInviteSendState(
         msg: SipRequest,
         destination: String,
@@ -4908,7 +4981,6 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
     private val prAckWaitTracker = PrackWaitTracker()
 
 
-
     private fun updateCurrentCallFromInDialogInviteSdp(
         call: Call,
         request: SipRequest,
@@ -5173,18 +5245,6 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
     }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
     private fun parseIncomingInviteOffer(
         request: SipRequest,
         incomingCallId: String,
@@ -5332,7 +5392,6 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
             synchronized(incomingResponseWriter) { incomingResponseWriter.write(msg2.toByteArray()) }
         }
     }
-
 
 
     private fun prepareIncomingInviteDialogSetupState(
