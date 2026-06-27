@@ -24,6 +24,15 @@ data class SipSmsPolicy(
     val rpResultWaitMs: Long = 15_000L,
 )
 
+data class SipInviteFailurePolicy(
+    val retryAfter422: Boolean = true,
+    val retryIllegalSdpStatusCodes: Set<Int> = setOf(400),
+    val retryIllegalSdpWarningSubstrings: List<String> = listOf(
+        "SDP is illegal",
+        "illegal SDP",
+    ),
+)
+
 data class SipCarrierPolicy(
     val mcc: String,
     val mnc: String,
@@ -41,6 +50,7 @@ data class SipCarrierPolicy(
     val fallbackEmergencyDialStrings: Set<String> = DEFAULT_FALLBACK_EMERGENCY_DIAL_STRINGS,
     val registrationRecoveryPolicy: SipRegistrationRecoveryPolicy = SipRegistrationRecoveryPolicy(),
     val smsPolicy: SipSmsPolicy = SipSmsPolicy(),
+    val inviteFailurePolicy: SipInviteFailurePolicy = SipInviteFailurePolicy(),
 ) {
     val mccMnc: String = mcc + mnc
 
@@ -242,6 +252,7 @@ data class SipCarrierSettings(
     val subscribeRegEvent: Boolean get() = policy.subscribeRegEvent
     val registrationRecoveryPolicy: SipRegistrationRecoveryPolicy get() = policy.registrationRecoveryPolicy
     val smsPolicy: SipSmsPolicy get() = policy.smsPolicy
+    val inviteFailurePolicy: SipInviteFailurePolicy get() = policy.inviteFailurePolicy
 
     // Legacy names kept while callers are converted.
     val registerNetworkHeaders: SipHeadersMap get() = policy.registerExtraHeaders

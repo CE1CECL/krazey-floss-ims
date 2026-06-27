@@ -2896,7 +2896,10 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         response: SipResponse,
         outgoingDialogNextCseq: AtomicInteger,
     ): Boolean {
-        if (!SipOutgoingInviteRetryPolicy.responseWarnsIllegalSdp(response)) return false
+        if (!SipOutgoingInviteRetryPolicy.responseWarnsIllegalSdp(
+                response,
+                carrierSettings.inviteFailurePolicy,
+            )) return false
         if (pending.cancelSent.get()) {
             Rlog.w(TAG, SipOutgoingInviteRetryPolicy.notRetryingIllegalSdpAfterCancelLog(pending.callId))
             return false
@@ -2957,6 +2960,10 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         response: SipResponse,
         outgoingDialogNextCseq: AtomicInteger,
     ): Boolean {
+        if (!carrierSettings.inviteFailurePolicy.retryAfter422) {
+            return false
+        }
+
         val retry = inviteSessionTimerPolicy.buildRetryHeadersAfter422(
             realm = realm,
             originalHeaders = pending.headers,
