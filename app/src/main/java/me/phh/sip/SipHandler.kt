@@ -245,7 +245,7 @@ class SipHandler(
     private val dispatcher = SipDispatcher(TAG)
 
     private val inviteSessionTimerPolicy = SipInviteSessionTimerPolicy(TAG)
-    private val smsFallbackPolicy = SipSmsFallbackPolicy(TAG)
+    private val smsFallbackPolicy = SipSmsFallbackPolicy(TAG, carrierSettings.smsPolicy)
     /*
      * UDP SIP responses must be sent on the same 5-tuple that delivered the
      * request. A plain ByteArrayOutputStream only works for immediate responses

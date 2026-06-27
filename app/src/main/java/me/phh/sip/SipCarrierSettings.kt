@@ -18,6 +18,12 @@ data class SipRegistrationRecoveryPolicy(
     val keepFrameworkRegistrationDuringTransientSipReconnect: Boolean = true,
 )
 
+data class SipSmsPolicy(
+    val fallbackSipStatusCodes: Set<Int> = setOf(403, 404, 405, 408, 480, 488, 500, 501, 503, 603),
+    val fallbackCooldownMs: Long = 30L * 60L * 1000L,
+    val rpResultWaitMs: Long = 15_000L,
+)
+
 data class SipCarrierPolicy(
     val mcc: String,
     val mnc: String,
@@ -34,6 +40,7 @@ data class SipCarrierPolicy(
     val securityClientEalgs: List<String> = DEFAULT_SECURITY_CLIENT_EALGS,
     val fallbackEmergencyDialStrings: Set<String> = DEFAULT_FALLBACK_EMERGENCY_DIAL_STRINGS,
     val registrationRecoveryPolicy: SipRegistrationRecoveryPolicy = SipRegistrationRecoveryPolicy(),
+    val smsPolicy: SipSmsPolicy = SipSmsPolicy(),
 ) {
     val mccMnc: String = mcc + mnc
 
@@ -234,6 +241,7 @@ data class SipCarrierSettings(
     val registerExtraHeaders: SipHeadersMap get() = policy.registerExtraHeaders
     val subscribeRegEvent: Boolean get() = policy.subscribeRegEvent
     val registrationRecoveryPolicy: SipRegistrationRecoveryPolicy get() = policy.registrationRecoveryPolicy
+    val smsPolicy: SipSmsPolicy get() = policy.smsPolicy
 
     // Legacy names kept while callers are converted.
     val registerNetworkHeaders: SipHeadersMap get() = policy.registerExtraHeaders

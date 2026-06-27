@@ -59,7 +59,7 @@ internal class SipSmsHandler(
             pendingOutgoingSmsByRef[pending.ref] = pending
         }
 
-        timeoutScheduler(15_000L) {
+        timeoutScheduler(carrierSettings.smsPolicy.rpResultWaitMs) {
             val expired = smsLock.withLock {
                 pendingOutgoingSmsByCallId.remove(callId)?.also {
                     pendingOutgoingSmsByRef.remove(it.ref)
