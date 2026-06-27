@@ -11,6 +11,12 @@ import android.telephony.ims.stub.ImsRegistrationImplBase.REGISTRATION_TECH_LTE
  * same shape as AOSP ImsStack carrier_config defaults/overrides without adding
  * an XML/resource loader before the policy surface has stabilized.
  */
+
+data class SipRegistrationRecoveryPolicy(
+    val blockPcscfOnRegistrationFailure: Boolean = true,
+    val pcscfBlockMs: Long = 30_000L,
+)
+
 data class SipCarrierPolicy(
     val mcc: String,
     val mnc: String,
@@ -26,6 +32,7 @@ data class SipCarrierPolicy(
     val securityClientAlgs: List<String> = DEFAULT_SECURITY_CLIENT_ALGS,
     val securityClientEalgs: List<String> = DEFAULT_SECURITY_CLIENT_EALGS,
     val fallbackEmergencyDialStrings: Set<String> = DEFAULT_FALLBACK_EMERGENCY_DIAL_STRINGS,
+    val registrationRecoveryPolicy: SipRegistrationRecoveryPolicy = SipRegistrationRecoveryPolicy(),
 ) {
     val mccMnc: String = mcc + mnc
 
@@ -225,6 +232,7 @@ data class SipCarrierSettings(
     val requireNonsessAka: Boolean get() = policy.requireNonsessAka
     val registerExtraHeaders: SipHeadersMap get() = policy.registerExtraHeaders
     val subscribeRegEvent: Boolean get() = policy.subscribeRegEvent
+    val registrationRecoveryPolicy: SipRegistrationRecoveryPolicy get() = policy.registrationRecoveryPolicy
 
     // Legacy names kept while callers are converted.
     val registerNetworkHeaders: SipHeadersMap get() = policy.registerExtraHeaders

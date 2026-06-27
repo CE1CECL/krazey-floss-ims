@@ -76,9 +76,10 @@ internal object ImsNetworkState {
         lp: LinkProperties,
         mnc: String,
         mcc: String,
+        preferredPcscf: InetAddress? = null,
     ): ImsNetworkEndpointResolution {
         val pcscfs = getPcscfServers(lp)
-        val pcscf = if (pcscfs.isNotEmpty()) {
+        val pcscf = preferredPcscf ?: if (pcscfs.isNotEmpty()) {
             pcscfs[0]
         } else {
             // RIL did not provide P-CSCF via LinkProperties. Try standard

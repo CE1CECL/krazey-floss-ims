@@ -130,6 +130,7 @@ class SipHandler(
     private var akaDigest = ""
     private var registerSecurityClientOverride: String? = null
     private var selectedSecurityClientForPromotedRegister: String? = null
+    private val blockedPcscfUntilUptimeMs = java.util.concurrent.ConcurrentHashMap<InetAddress, Long>()
     /*
      * Compatibility fallback for IMS cores where the AKA challenge realm
      * looks like an IMS registrar but must remain auth-only.
@@ -742,6 +743,84 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
     private fun getImsLocalAddress(lp: LinkProperties): InetAddress? =
         ImsNetworkState.getImsLocalAddress(lp)
 
+    private fun cleanupExpiredBlockedPcscfs(nowMs: Long = SystemClock.uptimeMillis()) {
+        val expiredPcscfs = blockedPcscfUntilUptimeMs.entries
+            .filter { it.value <= nowMs }
+            .map { it.key }
+        expiredPcscfs.forEach { blockedPcscfUntilUptimeMs.remove(it) }
+    }
+
+    private fun selectPcscfForRegistration(lp: LinkProperties, reason: String): InetAddress? {
+        val pcscfs = getPcscfServers(lp)
+        if (pcscfs.isEmpty()) return null
+
+        val recoveryPolicy = carrierSettings.registrationRecoveryPolicy
+        if (!recoveryPolicy.blockPcscfOnRegistrationFailure || pcscfs.size == 1) {
+            return pcscfs.first()
+        }
+
+        val nowMs = SystemClock.uptimeMillis()
+        cleanupExpiredBlockedPcscfs(nowMs)
+
+        val selectedPcscf = pcscfs.firstOrNull {
+            (blockedPcscfUntilUptimeMs[it] ?: 0L) <= nowMs
+        } ?: pcscfs.first().also {
+            Rlog.w(
+                TAG,
+                "All advertised P-CSCFs are temporarily blocked during $reason; " +
+                    "reusing first=${it.hostAddress} blocked=$blockedPcscfUntilUptimeMs",
+            )
+        }
+
+        if (selectedPcscf != pcscfs.first()) {
+            Rlog.w(
+                TAG,
+                "Selecting alternate P-CSCF for $reason: selected=${selectedPcscf.hostAddress} " +
+                    "advertised=${pcscfs.map { it.hostAddress }} blocked=$blockedPcscfUntilUptimeMs",
+            )
+        }
+
+        return selectedPcscf
+    }
+
+    private fun maybeBlockCurrentPcscfForRegistrationFailure(reason: String) {
+        val recoveryPolicy = carrierSettings.registrationRecoveryPolicy
+        if (!recoveryPolicy.blockPcscfOnRegistrationFailure || recoveryPolicy.pcscfBlockMs <= 0L) {
+            return
+        }
+        if (!this::network.isInitialized || !this::pcscfAddr.isInitialized) {
+            return
+        }
+
+        val lowerReason = reason.lowercase()
+        if (lowerReason.contains("no usable local address") ||
+            lowerReason.contains("no link properties") ||
+            lowerReason.contains("no p-cscf") ||
+            lowerReason.contains("auts")) {
+            return
+        }
+
+        val lp = try {
+            connectivityManager.getLinkProperties(network)
+        } catch (_: Throwable) {
+            null
+        } ?: return
+
+        val pcscfs = getPcscfServers(lp)
+        if (pcscfs.size <= 1 || pcscfAddr !in pcscfs) {
+            return
+        }
+
+        val blockUntilMs = SystemClock.uptimeMillis() + recoveryPolicy.pcscfBlockMs
+        blockedPcscfUntilUptimeMs[pcscfAddr] = blockUntilMs
+        Rlog.w(
+            TAG,
+            "Temporarily blocking P-CSCF ${pcscfAddr.hostAddress} for " +
+                "${recoveryPolicy.pcscfBlockMs}ms after IMS registration failure: " +
+                "$reason advertised=${pcscfs.map { it.hostAddress }}",
+        )
+    }
+
     private fun clearCallAndCallbackStateForReconnect() {
         stopCallRuntime("IMS reconnect")
         incomingFinalResponseSent.set(false)
@@ -1098,6 +1177,7 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
 
 
     private fun failConnectAndRetry(reason: String, baseDelayMs: Long = 5000L) {
+        maybeBlockCurrentPcscfForRegistrationFailure(reason)
         reconnectController.failConnectAndRetry(reason, baseDelayMs)
     }
 
@@ -1335,7 +1415,14 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         Rlog.d(TAG, "IMS registration tech ${registrationTechName(imsRegistrationTech)} interface=${lp.interfaceName} caps=${connectivityManager.getNetworkCapabilities(network)}")
         warnIfCurrentCellularImsEndpointDoesNotMatchWfcPolicy(lp)
         imsRegisteringCallback?.invoke(imsRegistrationTech)
-        when (val endpoint = ImsNetworkState.resolveEndpoint(TAG, lp, mnc, mcc)) {
+        val preferredPcscf = selectPcscfForRegistration(lp, "connect")
+        when (val endpoint = ImsNetworkState.resolveEndpoint(
+            tag = TAG,
+            lp = lp,
+            mnc = mnc,
+            mcc = mcc,
+            preferredPcscf = preferredPcscf,
+        )) {
             is ImsNetworkEndpointResolution.Success -> {
                 localAddr = endpoint.localAddr
                 pcscfAddr = endpoint.pcscfAddr
@@ -1810,6 +1897,7 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
 
             val retryReason = "connect/register failed: ${t.javaClass.simpleName}"
             Rlog.e(TAG, "IMS connect/register attempt failed; dropping stale SIP state and retrying IMS network request", t)
+            maybeBlockCurrentPcscfForRegistrationFailure(retryReason)
             try {
                 dropImsConnection(retryReason)
             } catch (cleanup: Throwable) {
@@ -2030,7 +2118,7 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         Rlog.d(TAG, "IMS network link properties changed ${imsDualSimDebugContext("linkProperties=$linkProperties")}")
         val pcscfs = getPcscfServers(linkProperties)
         val newLocalAddr = getImsLocalAddress(linkProperties)
-        val newPcscfAddr = pcscfs.firstOrNull()
+        val newPcscfAddr = selectPcscfForRegistration(linkProperties, "link properties changed")
         Rlog.d(TAG, "Got pcscfs $pcscfs local=$newLocalAddr")
         if (pcscfs.isNotEmpty() && abandonnedBecauseOfNoPcscf) {
             // Switch to this network if it has P-CSCF (could be a different bearer).
