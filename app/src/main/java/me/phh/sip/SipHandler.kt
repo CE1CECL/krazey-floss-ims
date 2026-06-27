@@ -151,7 +151,7 @@ class SipHandler(
      * failures can be correlated with the exact request/response sent.
      */
     private fun addCarrierRegisterNetworkHeaders(bytes: ByteArray): ByteArray {
-        val configuredHeaders = carrierSettings.registerNetworkHeaders
+        val configuredHeaders = carrierSettings.registerExtraHeaders
         if (configuredHeaders.isEmpty()) return bytes
 
         val raw = bytes.toString(Charsets.US_ASCII)
@@ -624,6 +624,24 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
 
     fun handlesSubscription(candidateSubId: Int): Boolean = subId == candidateSubId
 
+    private fun isEmergencyDialStringForNormalIms(normalizedNumber: String): Boolean {
+        if (normalizedNumber.isBlank()) return false
+
+        if (carrierSettings.isFallbackEmergencyDialString(normalizedNumber)) {
+            return true
+        }
+
+        return try {
+            subTelephonyManager.isEmergencyNumber(normalizedNumber)
+        } catch (t: Throwable) {
+            try {
+                telephonyManager.isEmergencyNumber(normalizedNumber)
+            } catch (t2: Throwable) {
+                false
+            }
+        }
+    }
+
     fun shouldForceCsfbForOutgoingDialString(number: String): Boolean {
         val normalizedNumber = normalizeOutgoingDialTargetForTelUri(number)
         val hasMmiControlChars =
@@ -639,7 +657,16 @@ fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
             return true
         }
 
-        if (carrierSettings.shouldForceCsfbForDialCode(normalizedNumber)) {
+        if (isEmergencyDialStringForNormalIms(normalizedNumber)) {
+            Rlog.w(
+                TAG,
+                "Forcing CSFB for emergency dial target before normal IMS INVITE path: " +
+                    "raw=$number normalized=$normalizedNumber carrier=${carrierSettings.mccMnc}",
+            )
+            return true
+        }
+
+        if (carrierSettings.shouldForceCsfbForDialString(normalizedNumber)) {
             Rlog.w(
                 TAG,
                 "Forcing CSFB for carrier-configured service code that reached IMS stripped: " +
@@ -2304,7 +2331,7 @@ private fun scheduleReconnectRetry(reason: String, delayMs: Long) {
         myTel = registeredIdentity.myTel
         commonHeaders += registeredIdentity.commonHeaders()
 
-        if (carrierSettings.skipRegEventSubscribe) {
+        if (!carrierSettings.subscribeRegEvent) {
             Rlog.d(TAG, "Skipping reg-event SUBSCRIBE for carrier ${carrierSettings.mccMnc}; REGISTER success is sufficient")
         } else {
             subscribe()

@@ -336,7 +336,7 @@ internal class SipSmsHandler(
             }
         }
 
-        val smsc = carrierSettings.outgoingSmscForImsSms(realm, rawSmsc)
+        val smsc = if (useSingTelSmsPolicy) carrierSettings.singtelSmsc() else rawSmsc
 
         // RP-DATA destination address. Passing an empty string makes
         // PhoneNumberUtils.numberToCalledPartyBCD("") return null and crashes
@@ -346,8 +346,8 @@ internal class SipSmsHandler(
         Rlog.d(tag, "sending sms ${data.toHex()} to rawSmsc=$rawSmsc smsc=$smsc rpSmsc=$rpSmsc")
 
         val smscSipIdentity = smscIdentity?.toString()?.let { normalizeSipTarget(it) }
-        val requestUri = carrierSettings.outgoingSmsRequestUri(realm, smsc, smscSipIdentity)
-        val dest = carrierSettings.outgoingSmsToUri(realm, requestUri, smsc, smscSipIdentity)
+        val requestUri = carrierSettings.smsRequestUri(realm, smsc, smscSipIdentity)
+        val dest = carrierSettings.smsToUri(realm, requestUri, smsc, smscSipIdentity)
         if (useSingTelSmsPolicy) {
             Rlog.d(tag, "Using SingTel IMS SMS target requestUri=$requestUri dest=$dest rawSmsc=$rawSmsc smsc=$smsc rpSmsc=$rpSmsc")
         }

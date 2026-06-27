@@ -32,45 +32,20 @@ internal object SipOutgoingInviteRequestBuilder {
     // short-code targets such as tel:121 with "Local phone number without phone
     // context". Keep E.164 targets unchanged, and keep the known Vodafone TR
     // service-number exception plain because that carrier rejected the generic
-    // MCC/MNC context for 542.
-    private fun phoneContextForLocalTelUri(realm: String, mcc: String, mnc: String): String {
-        val candidate = realm.trim()
-            .removePrefix("sip:")
-            .substringBefore(";")
-            .substringAfter("@")
-            .trim()
-
-        if (candidate.isNotBlank() &&
-            candidate.none { it.isWhitespace() || it == '<' || it == '>' || it == '"' } &&
-            !candidate.contains(":")) {
-            return candidate
-        }
-
-        return "ims.mnc${SipCarrierSettings.normalizedMncForPhoneContext(mnc)}.mcc${mcc.trim().padStart(3, '0')}.3gppnetwork.org"
-    }
-
+    // MCC/MNC context for 542. The actual phone-context value is resolved by
+    // SipCarrierSettings so carrier policy remains centralized.
     private fun shortServiceTelUri(
         normalizedPhoneNumber: String,
         carrierSettings: SipCarrierSettings,
         realm: String,
     ): String? {
-        if (!SipCarrierSettings.isLocalShortCode(normalizedPhoneNumber)) {
+        if (!carrierSettings.isLocalShortCode(normalizedPhoneNumber)) {
             return null
         }
 
-        val fallbackEmergencyShortCodes = setOf(
-            "000", // AU and others
-            "110", // DE police and others
-            "112", // EU/common emergency
-            "118",
-            "119",
-            "911", // NANP/common emergency
-            "999", // UK/common emergency
-        )
-
         // If an emergency-like code reaches this normal MMTel path anyway, do
         // not add a phone-context here. The real emergency path should handle it.
-        if (normalizedPhoneNumber in fallbackEmergencyShortCodes) {
+        if (carrierSettings.isFallbackEmergencyDialString(normalizedPhoneNumber)) {
             return "tel:$normalizedPhoneNumber"
         }
 
@@ -78,9 +53,8 @@ internal object SipOutgoingInviteRequestBuilder {
             return "tel:$normalizedPhoneNumber"
         }
 
-        return "tel:$normalizedPhoneNumber;phone-context=${phoneContextForLocalTelUri(realm, carrierSettings.mcc, carrierSettings.mnc)}"
+        return "tel:$normalizedPhoneNumber;phone-context=${carrierSettings.phoneContextForLocalTelUri(realm)}"
     }
-
 
     fun build(
         logTag: String,
@@ -168,7 +142,7 @@ internal object SipOutgoingInviteRequestBuilder {
         } else {
             // Short service numbers were handled above. Other local numbers
             // keep the generic IMS phone-context.
-            "tel:$normalizedPhoneNumber;phone-context=${phoneContextForLocalTelUri(realm, carrierSettings.mcc, carrierSettings.mnc)}"
+            "tel:$normalizedPhoneNumber;phone-context=${carrierSettings.phoneContextForLocalTelUri(realm)}"
         }
         Rlog.d(logTag, "Outgoing dial target raw=$phoneNumber normalized=$normalizedPhoneNumber uri=$to")
         val sipInstance = "<urn:gsma:imei:${imei.substring(0, 8)}-${imei.substring(8, 14)}-0>"
