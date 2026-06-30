@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.media.AudioManager
@@ -37,7 +37,7 @@ object SipAudioRecordStarter {
             logTag,
             "AudioRecord started, state=${audioRecord.recordingState} " +
                 "audioMode=${audioManager.mode} (was $previousAudioMode) " +
-                "preferredDevice=${audioRecord.preferredDevice?.type}"
+                "preferredDevice=${audioRecord.preferredDevice?.type}",
         )
         return previousAudioMode
     }

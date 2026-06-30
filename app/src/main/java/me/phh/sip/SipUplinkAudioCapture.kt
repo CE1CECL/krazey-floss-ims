@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.content.Context
@@ -35,37 +35,40 @@ object SipUplinkAudioCaptureStarter {
             return null
         }
 
-        val audioRecord = try {
-            SipAudioRecordFactory.createVoiceCommunicationRecord(
-                bufferSize = minBufferSize,
-                audioCodec = audioCodec,
-            )
-        } catch (t: Throwable) {
-            Rlog.e(logTag, "AudioRecord creation failed with bufferSize=$minBufferSize", t)
+        val audioRecord =
             try {
-                encoder.stop()
-            } catch (_: Throwable) {
+                SipAudioRecordFactory.createVoiceCommunicationRecord(
+                    bufferSize = minBufferSize,
+                    audioCodec = audioCodec,
+                )
+            } catch (t: Throwable) {
+                Rlog.e(logTag, "AudioRecord creation failed with bufferSize=$minBufferSize", t)
+                try {
+                    encoder.stop()
+                } catch (_: Throwable) {
+                }
+                try {
+                    encoder.release()
+                } catch (_: Throwable) {
+                }
+                return null
             }
-            try {
-                encoder.release()
-            } catch (_: Throwable) {
-            }
-            return null
-        }
         Rlog.d(logTag, "AudioRecord created with minBufferSize=$minBufferSize, state=${audioRecord.state}")
 
-        val audioManager = SipAudioRecordRouting.pinBuiltinMic(
-            logTag = logTag,
-            context = context,
-            audioRecord = audioRecord,
-        )
+        val audioManager =
+            SipAudioRecordRouting.pinBuiltinMic(
+                logTag = logTag,
+                context = context,
+                audioRecord = audioRecord,
+            )
 
-        val previousAudioMode = SipAudioRecordStarter.startForImsUplink(
-            logTag = logTag,
-            audioManager = audioManager,
-            audioRecord = audioRecord,
-            encoder = encoder,
-        ) ?: return null
+        val previousAudioMode =
+            SipAudioRecordStarter.startForImsUplink(
+                logTag = logTag,
+                audioManager = audioManager,
+                audioRecord = audioRecord,
+                encoder = encoder,
+            ) ?: return null
 
         return SipUplinkAudioCapture(
             audioRecord = audioRecord,

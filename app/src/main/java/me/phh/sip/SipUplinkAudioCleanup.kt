@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.content.Context
@@ -24,7 +24,7 @@ object SipUplinkAudioCleanup {
             logTag,
             "Encode thread exiting: callStopped=${callStopped.get()}, " +
                 "genMismatch=${callGeneration.get() != generation}, " +
-                "totalPacketsSent=$totalPacketsSent"
+                "totalPacketsSent=$totalPacketsSent",
         )
         try {
             audioRecord.stop()
@@ -51,7 +51,7 @@ object SipUplinkAudioCleanup {
         Rlog.d(
             logTag,
             "Encode thread cleanup complete before audio mode restore: " +
-                "callStopped=$stopped genMismatch=$genMismatch"
+                "callStopped=$stopped genMismatch=$genMismatch",
         )
         if (genMismatch) {
             Rlog.i(

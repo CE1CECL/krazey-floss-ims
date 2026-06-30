@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.telephony.Rlog
@@ -24,7 +24,7 @@ object SipUplinkSilencePacer {
                 Rlog.d(
                     logTag,
                     "Silence loop exiting early: callStopped=${callStopped.get()}, " +
-                        "genMismatch=${callGeneration.get() != generation}"
+                        "genMismatch=${callGeneration.get() != generation}",
                 )
                 cleanupOnExit()
                 return false

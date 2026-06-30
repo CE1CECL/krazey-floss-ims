@@ -34,25 +34,29 @@ internal object SipOutgoingInviteInitialSend {
         body: ByteArray,
     ): InitialOutgoingInvitePreparedState {
         val outgoingInviteCallId = msg.headers["call-id"]!![0]
-        val outgoingInviteCseq = msg.headers["cseq"]?.getOrNull(0)
-            ?.substringBefore(" ")
-            ?.toIntOrNull()
-            ?: 1
+        val outgoingInviteCseq =
+            msg.headers["cseq"]
+                ?.getOrNull(0)
+                ?.substringBefore(" ")
+                ?.toIntOrNull()
+                ?: 1
         val outgoingDialogNextCseq = AtomicInteger(outgoingInviteCseq + 1)
-        val pendingInvite = PendingOutgoingInvite(
-            callId = outgoingInviteCallId,
-            destination = destination,
-            headers = msg.headers,
-            rtpSocket = rtpSocket,
-            body = body,
-        )
+        val pendingInvite =
+            PendingOutgoingInvite(
+                callId = outgoingInviteCallId,
+                destination = destination,
+                headers = msg.headers,
+                rtpSocket = rtpSocket,
+                body = body,
+            )
 
         return InitialOutgoingInvitePreparedState(
             pendingInvite = pendingInvite,
-            sendState = InitialOutgoingInviteSendState(
-                callId = outgoingInviteCallId,
-                outgoingDialogNextCseq = outgoingDialogNextCseq,
-            ),
+            sendState =
+                InitialOutgoingInviteSendState(
+                    callId = outgoingInviteCallId,
+                    outgoingDialogNextCseq = outgoingDialogNextCseq,
+                ),
         )
     }
 
@@ -74,7 +78,7 @@ internal object SipOutgoingInviteInitialSend {
                 debugContext(
                     "callId=$outgoingInviteCallId cseq=${msg.headers["cseq"]?.getOrNull(0)} " +
                         "to=$destination raw=$phoneNumber normalized=$normalizedPhoneNumber " +
-                        "rtp=${rtpSocket.localAddress}:${rtpSocket.localPort} sdpBytes=${body.size}"
+                        "rtp=${rtpSocket.localAddress}:${rtpSocket.localPort} sdpBytes=${body.size}",
                 ),
         )
         Rlog.d(logTag, "Sending $msg")

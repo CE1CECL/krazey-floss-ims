@@ -34,8 +34,9 @@ class SipInviteSessionTimerPolicy(
 
     fun currentForRealm(realm: String): SipInviteSessionTimer {
         val key = normalizedRealm(realm)
-        val minSe = (learnedMinSeByRealm[key] ?: defaultMinSeSeconds)
-            .coerceIn(minSeFloorSeconds, minSeCeilingSeconds)
+        val minSe =
+            (learnedMinSeByRealm[key] ?: defaultMinSeSeconds)
+                .coerceIn(minSeFloorSeconds, minSeCeilingSeconds)
         return SipInviteSessionTimer(
             minSeSeconds = minSe,
             sessionExpiresSeconds = maxOf(minSe, defaultSessionExpiresSeconds),
@@ -53,27 +54,31 @@ class SipInviteSessionTimerPolicy(
 
         val minSe = learnMinSeFrom422(realm, response) ?: return null
         val oldCseq = firstHeader(originalHeaders, "cseq") ?: failedCseq
-        val retryCseqNumber = (oldCseq.substringBefore(" ").trim().toIntOrNull()
-            ?: failedCseq.substringBefore(" ").trim().toIntOrNull()
-            ?: 1) + 1
+        val retryCseqNumber =
+            (
+                oldCseq.substringBefore(" ").trim().toIntOrNull()
+                    ?: failedCseq.substringBefore(" ").trim().toIntOrNull()
+                    ?: 1
+            ) + 1
         val sessionExpires = maxOf(minSe, defaultSessionExpiresSeconds)
 
-        val retryHeaders = regenerateSipViaBranch(
-            originalHeaders -
-                "cseq" -
-                "CSeq" -
-                "min-se" -
-                "Min-Se" -
-                "session-expires" -
-                "Session-Expires" -
-                "content-length" -
-                "Content-Length" +
-                """
+        val retryHeaders =
+            regenerateSipViaBranch(
+                originalHeaders -
+                    "cseq" -
+                    "CSeq" -
+                    "min-se" -
+                    "Min-Se" -
+                    "session-expires" -
+                    "Session-Expires" -
+                    "content-length" -
+                    "Content-Length" +
+                    """
                 CSeq: $retryCseqNumber INVITE
                 Min-SE: $minSe
                 Session-Expires: $sessionExpires
-                """.toSipHeadersMap()
-        )
+                """.toSipHeadersMap(),
+            )
 
         return SipInviteRetryHeaders(
             headers = retryHeaders,
@@ -83,9 +88,13 @@ class SipInviteSessionTimerPolicy(
         )
     }
 
-    private fun learnMinSeFrom422(realm: String, response: SipResponse): Int? {
-        val advertisedMinSe = parseDeltaSeconds(firstHeader(response.headers, "min-se"))
-            ?: return null
+    private fun learnMinSeFrom422(
+        realm: String,
+        response: SipResponse,
+    ): Int? {
+        val advertisedMinSe =
+            parseDeltaSeconds(firstHeader(response.headers, "min-se"))
+                ?: return null
         val minSe = advertisedMinSe.coerceIn(minSeFloorSeconds, minSeCeilingSeconds)
         val key = normalizedRealm(realm)
         val oldMinSe = learnedMinSeByRealm[key] ?: defaultMinSeSeconds
@@ -107,23 +116,36 @@ class SipInviteSessionTimerPolicy(
             ?.trim()
             ?.toIntOrNull()
 
-    private fun firstHeader(headers: SipHeadersMap, name: String): String? =
+    private fun firstHeader(
+        headers: SipHeadersMap,
+        name: String,
+    ): String? =
         headers[name]?.getOrNull(0)
             ?: headers[name.lowercase()]?.getOrNull(0)
-            ?: headers.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value?.getOrNull(0)
+            ?: headers.entries
+                .firstOrNull { it.key.equals(name, ignoreCase = true) }
+                ?.value
+                ?.getOrNull(0)
 
     private fun normalizedRealm(realm: String): String = realm.trim().lowercase()
 
     private fun regenerateSipViaBranch(headers: SipHeadersMap): SipHeadersMap {
         val viaHeaders = headers["via"] ?: headers["Via"] ?: return headers
-        val updatedViaHeaders = viaHeaders.map { via ->
-            val newBranch = "z9hG4bK" + UUID.randomUUID().toString().replace("-", "").take(24)
-            if (via.contains("branch=", ignoreCase = true)) {
-                via.replace(Regex("branch=[^;\\s]+", RegexOption.IGNORE_CASE), "branch=$newBranch")
-            } else {
-                "$via;branch=$newBranch"
+        val updatedViaHeaders =
+            viaHeaders.map { via ->
+                val newBranch =
+                    "z9hG4bK" +
+                        UUID
+                            .randomUUID()
+                            .toString()
+                            .replace("-", "")
+                            .take(24)
+                if (via.contains("branch=", ignoreCase = true)) {
+                    via.replace(Regex("branch=[^;\\s]+", RegexOption.IGNORE_CASE), "branch=$newBranch")
+                } else {
+                    "$via;branch=$newBranch"
+                }
             }
-        }
         return headers - "via" - "Via" + ("via" to updatedViaHeaders)
     }
 }

@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.ims
 
 import android.app.AlarmManager
@@ -41,12 +41,13 @@ class PhhImsService : ImsService() {
     fun armPeriodicRegisterAlarm() {
         val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val intent = Intent(receiver.ALARM_PERIODIC_REGISTER)
-        val pendingIntent = PendingIntent.getBroadcast(
-            this,
-            0,
-            intent,
-            PendingIntent.FLAG_IMMUTABLE,
-        )
+        val pendingIntent =
+            PendingIntent.getBroadcast(
+                this,
+                0,
+                intent,
+                PendingIntent.FLAG_IMMUTABLE,
+            )
 
         // We want recurring 3000s but recurring alarms don't wake up from
         // doze: alarm will re-arm itself.
@@ -132,8 +133,7 @@ class PhhImsService : ImsService() {
         }
     }
 
-    fun getActiveSipHandlers() =
-        mmTelFeaturesBySlot.values.mapNotNull { it.getSipHandlerOrNull() }
+    fun getActiveSipHandlers() = mmTelFeaturesBySlot.values.mapNotNull { it.getSipHandlerOrNull() }
 
     class LocalBinder : Binder() {
         fun getService(): PhhImsService {

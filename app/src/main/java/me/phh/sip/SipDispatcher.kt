@@ -31,11 +31,17 @@ internal class SipDispatcher(
      */
     private val requestWriters = ConcurrentHashMap<String, OutputStream>()
 
-    fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
+    fun setRequestCallback(
+        method: SipMethod,
+        cb: (SipRequest) -> Int,
+    ) {
         lock.withLock { requestCallbacks += method to cb }
     }
 
-    fun setResponseCallback(callId: String, cb: (SipResponse) -> Boolean) {
+    fun setResponseCallback(
+        callId: String,
+        cb: (SipResponse) -> Boolean,
+    ) {
         lock.withLock { responseCallbacks += callId to cb }
     }
 
@@ -54,17 +60,21 @@ internal class SipDispatcher(
 
     fun hasWriterForCallId(callId: String): Boolean = requestWriters.containsKey(callId)
 
-    fun parseMessage(reader: SipReader, writer: OutputStream): Boolean {
-        val msg = try {
-            reader.parseMessage()
-        } catch (e: SocketException) {
-            Rlog.d(tag, "Got exception $e")
-            if ("$e" == "java.net.SocketException: Try again") {
-                // We sometimes seem to get EAGAIN.
-                return true
+    fun parseMessage(
+        reader: SipReader,
+        writer: OutputStream,
+    ): Boolean {
+        val msg =
+            try {
+                reader.parseMessage()
+            } catch (e: SocketException) {
+                Rlog.d(tag, "Got exception $e")
+                if ("$e" == "java.net.SocketException: Try again") {
+                    // We sometimes seem to get EAGAIN.
+                    return true
+                }
+                throw e
             }
-            throw e
-        }
 
         Rlog.d(tag, "RObject() message $msg")
 
@@ -84,42 +94,47 @@ internal class SipDispatcher(
         val requestCb = lock.withLock { requestCallbacks[msg.method] }
         var status = 200
         if (requestCb != null) {
-            status = try {
-                requestCb(msg)
-            } catch (t: Throwable) {
-                Rlog.e(
-                    tag,
-                    "Request handler for ${msg.method} crashed; replying 500 and keeping SIP transport alive",
-                    t,
-                )
-                500
-            }
+            status =
+                try {
+                    requestCb(msg)
+                } catch (t: Throwable) {
+                    Rlog.e(
+                        tag,
+                        "Request handler for ${msg.method} crashed; replying 500 and keeping SIP transport alive",
+                        t,
+                    )
+                    500
+                }
         }
 
         if (status == 0) return true
 
-        val responseHeaders = msg.headers.filter { (k, _) ->
-            k in listOf("cseq", "via", "from", "to", "call-id")
-        } + when (status) {
-            486 -> "Reason: Q.850;cause=17;text=\"User busy\"".toSipHeadersMap()
-            else -> emptyMap()
-        }
+        val responseHeaders =
+            msg.headers.filter { (k, _) ->
+                k in listOf("cseq", "via", "from", "to", "call-id")
+            } +
+                when (status) {
+                    486 -> "Reason: Q.850;cause=17;text=\"User busy\"".toSipHeadersMap()
+                    else -> emptyMap()
+                }
 
-        val reply = SipResponse(
-            statusCode = status,
-            statusString = when (status) {
-                100 -> "Trying"
-                200 -> "OK"
-                481 -> "Call/Transaction Does Not Exist"
-                486 -> "Busy Here"
-                487 -> "Request Terminated"
-                488 -> "Not Acceptable Here"
-                500 -> "Server Internal Error"
-                603 -> "Decline"
-                else -> "ERROR"
-            },
-            headersParam = responseHeaders,
-        )
+        val reply =
+            SipResponse(
+                statusCode = status,
+                statusString =
+                    when (status) {
+                        100 -> "Trying"
+                        200 -> "OK"
+                        481 -> "Call/Transaction Does Not Exist"
+                        486 -> "Busy Here"
+                        487 -> "Request Terminated"
+                        488 -> "Not Acceptable Here"
+                        500 -> "Server Internal Error"
+                        603 -> "Decline"
+                        else -> "ERROR"
+                    },
+                headersParam = responseHeaders,
+            )
 
         Rlog.d(tag, "Replying back with $reply")
         synchronized(writer) {
@@ -136,8 +151,9 @@ internal class SipDispatcher(
             return false
         }
 
-        val responseCb = lock.withLock { responseCallbacks[callId] }
-            ?: return true
+        val responseCb =
+            lock.withLock { responseCallbacks[callId] }
+                ?: return true
 
         if (responseCb(response)) {
             lock.withLock { responseCallbacks -= callId }

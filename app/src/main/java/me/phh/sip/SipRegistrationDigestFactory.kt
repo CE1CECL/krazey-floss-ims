@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 object SipRegistrationDigestFactory {
@@ -41,8 +41,8 @@ object SipRegistrationDigestFactory {
         opaque: String?,
         auts: ByteArray,
         useNonsessAka: Boolean,
-    ): String {
-        return if (useNonsessAka) {
+    ): String =
+        if (useNonsessAka) {
             SipAkaSynchronizationDigest(
                 user = user,
                 realm = realm,
@@ -61,6 +61,4 @@ object SipRegistrationDigestFactory {
                 auts = auts,
             ).toString()
         }
-    }
-
 }

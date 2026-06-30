@@ -24,27 +24,42 @@ internal class ImsTransportGuard(
 ) {
     internal interface Actions {
         fun currentNetwork(): Network?
+
         fun isSocketInitialized(): Boolean
 
         fun isImsReady(): Boolean
+
         fun setImsReadyForTransportSuppression(ready: Boolean)
+
         fun notifyImsFailure()
+
         fun markImsReady(reason: String)
 
         fun hasActiveOrPendingCall(): Boolean
+
         fun setPendingReconnectAfterActiveCall(reason: String)
+
         fun activeOrPendingCallSummary(): String
 
         fun invalidatePendingReconnects(reason: String)
+
         fun dropImsConnection(reason: String)
+
         fun setAbandonedBecauseOfNoPcscf()
-        fun scheduleImsNetworkRequestRestart(reason: String, delayMs: Long)
+
+        fun scheduleImsNetworkRequestRestart(
+            reason: String,
+            delayMs: Long,
+        )
     }
 
     private val suspendedGeneration = AtomicInteger(0)
     private var readySuppressedByNetworkSuspension = false
 
-    fun isUsableForOutgoingCall(localAddress: InetAddress?, reason: String): Boolean {
+    fun isUsableForOutgoingCall(
+        localAddress: InetAddress?,
+        reason: String,
+    ): Boolean {
         val currentNetwork = actions.currentNetwork()
         if (currentNetwork == null) {
             Rlog.w(tag, "No IMS network while checking transport usability: $reason")
@@ -56,24 +71,26 @@ internal class ImsTransportGuard(
             return false
         }
 
-        val caps = try {
-            connectivityManager.getNetworkCapabilities(currentNetwork)
-        } catch (t: Throwable) {
-            Rlog.w(tag, "Failed to read IMS NetworkCapabilities: $reason", t)
-            null
-        }
+        val caps =
+            try {
+                connectivityManager.getNetworkCapabilities(currentNetwork)
+            } catch (t: Throwable) {
+                Rlog.w(tag, "Failed to read IMS NetworkCapabilities: $reason", t)
+                null
+            }
 
         if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED) != true) {
             Rlog.w(tag, "IMS network is suspended/stale: network=$currentNetwork caps=$caps reason=$reason")
             return false
         }
 
-        val lp = try {
-            connectivityManager.getLinkProperties(currentNetwork)
-        } catch (t: Throwable) {
-            Rlog.w(tag, "Failed to read IMS LinkProperties while checking local address: $reason", t)
-            null
-        }
+        val lp =
+            try {
+                connectivityManager.getLinkProperties(currentNetwork)
+            } catch (t: Throwable) {
+                Rlog.w(tag, "Failed to read IMS LinkProperties while checking local address: $reason", t)
+                null
+            }
 
         val present = lp?.linkAddresses?.any { it.address == localAddress } == true
         if (!present) {
@@ -86,7 +103,10 @@ internal class ImsTransportGuard(
         return present
     }
 
-    fun onCapabilitiesChanged(callbackNetwork: Network, caps: NetworkCapabilities) {
+    fun onCapabilitiesChanged(
+        callbackNetwork: Network,
+        caps: NetworkCapabilities,
+    ) {
         if (actions.currentNetwork() != callbackNetwork) {
             return
         }
@@ -101,7 +121,10 @@ internal class ImsTransportGuard(
         }
     }
 
-    private fun handleNotSuspended(currentNetwork: Network, caps: NetworkCapabilities) {
+    private fun handleNotSuspended(
+        currentNetwork: Network,
+        caps: NetworkCapabilities,
+    ) {
         if (actions.currentNetwork() != currentNetwork) {
             return
         }
@@ -114,7 +137,10 @@ internal class ImsTransportGuard(
         }
     }
 
-    private fun handleSuspended(suspendedNetwork: Network, reason: String) {
+    private fun handleSuspended(
+        suspendedNetwork: Network,
+        reason: String,
+    ) {
         if (actions.currentNetwork() != suspendedNetwork) {
             Rlog.d(tag, "Ignoring suspension for non-current IMS network: $suspendedNetwork reason=$reason")
             return
@@ -147,11 +173,12 @@ internal class ImsTransportGuard(
                 return@postDelayed
             }
 
-            val currentCaps = try {
-                connectivityManager.getNetworkCapabilities(suspendedNetwork)
-            } catch (t: Throwable) {
-                null
-            }
+            val currentCaps =
+                try {
+                    connectivityManager.getNetworkCapabilities(suspendedNetwork)
+                } catch (t: Throwable) {
+                    null
+                }
 
             if (currentCaps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED) == true) {
                 Rlog.d(tag, "IMS network recovered NOT_SUSPENDED during suspension grace: caps=$currentCaps")

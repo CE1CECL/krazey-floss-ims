@@ -25,7 +25,6 @@ private data class OutgoingInviteCarrierRequestShape(
 )
 
 internal object SipOutgoingInviteRequestBuilder {
-
     // Scoped short service TEL URI policy.
     //
     // Local TEL numbers need a phone-context. Some IMS cores reject plain local
@@ -77,36 +76,38 @@ internal object SipOutgoingInviteRequestBuilder {
         singtelStockOutgoingCarrier: Boolean,
         singtelPublicSipUri: (String) -> String,
     ): OutgoingInviteRequestContext {
-        val baseRequestContext = buildBaseRequestContext(
-            logTag = logTag,
-            phoneNumber = phoneNumber,
-            normalizedPhoneNumber = normalizedPhoneNumber,
-            carrierSettings = carrierSettings,
-            realm = realm,
-            registrationTech = registrationTech,
-            mySip = mySip,
-            myTel = myTel,
-            imei = imei,
-            commonHeaders = commonHeaders,
-            localEndpoint = localEndpoint,
-            transport = transport,
-            sessionExpiresSeconds = sessionExpiresSeconds,
-            minSeSeconds = minSeSeconds,
-            generatedCallIdHeaders = generatedCallIdHeaders,
-        )
-        val carrierRequestShape = buildCarrierRequestShape(
-            normalizedPhoneNumber = baseRequestContext.normalizedPhoneNumber,
-            telUri = baseRequestContext.telUri,
-            baseHeaders = baseRequestContext.baseHeaders,
-            sipInstance = baseRequestContext.sipInstance,
-            localEndpoint = baseRequestContext.localEndpoint,
-            transport = baseRequestContext.transport,
-            myTel = myTel,
-            imsi = imsi,
-            commonHeaders = commonHeaders,
-            singtelStockOutgoingCarrier = singtelStockOutgoingCarrier,
-            singtelPublicSipUri = singtelPublicSipUri,
-        )
+        val baseRequestContext =
+            buildBaseRequestContext(
+                logTag = logTag,
+                phoneNumber = phoneNumber,
+                normalizedPhoneNumber = normalizedPhoneNumber,
+                carrierSettings = carrierSettings,
+                realm = realm,
+                registrationTech = registrationTech,
+                mySip = mySip,
+                myTel = myTel,
+                imei = imei,
+                commonHeaders = commonHeaders,
+                localEndpoint = localEndpoint,
+                transport = transport,
+                sessionExpiresSeconds = sessionExpiresSeconds,
+                minSeSeconds = minSeSeconds,
+                generatedCallIdHeaders = generatedCallIdHeaders,
+            )
+        val carrierRequestShape =
+            buildCarrierRequestShape(
+                normalizedPhoneNumber = baseRequestContext.normalizedPhoneNumber,
+                telUri = baseRequestContext.telUri,
+                baseHeaders = baseRequestContext.baseHeaders,
+                sipInstance = baseRequestContext.sipInstance,
+                localEndpoint = baseRequestContext.localEndpoint,
+                transport = baseRequestContext.transport,
+                myTel = myTel,
+                imsi = imsi,
+                commonHeaders = commonHeaders,
+                singtelStockOutgoingCarrier = singtelStockOutgoingCarrier,
+                singtelPublicSipUri = singtelPublicSipUri,
+            )
         return buildRequestContext(
             outgoingInviteBody = outgoingInviteBody,
             baseRequestContext = baseRequestContext,
@@ -131,27 +132,29 @@ internal object SipOutgoingInviteRequestBuilder {
         minSeSeconds: Int,
         generatedCallIdHeaders: Map<String, List<String>>,
     ): OutgoingInviteBaseRequestContext {
-        val to = shortServiceTelUri(
-            normalizedPhoneNumber = normalizedPhoneNumber,
-            carrierSettings = carrierSettings,
-            realm = realm,
-        ) ?: if (normalizedPhoneNumber.startsWith("+")) {
-            // Global TEL URIs must stand on their own. Adding phone-context to +E.164
-            // numbers makes some IMS cores drop the INVITE without any SIP response.
-            "tel:$normalizedPhoneNumber"
-        } else {
-            // Short service numbers were handled above. Other local numbers
-            // keep the generic IMS phone-context.
-            "tel:$normalizedPhoneNumber;phone-context=${carrierSettings.phoneContextForLocalTelUri(realm)}"
-        }
+        val to =
+            shortServiceTelUri(
+                normalizedPhoneNumber = normalizedPhoneNumber,
+                carrierSettings = carrierSettings,
+                realm = realm,
+            ) ?: if (normalizedPhoneNumber.startsWith("+")) {
+                // Global TEL URIs must stand on their own. Adding phone-context to +E.164
+                // numbers makes some IMS cores drop the INVITE without any SIP response.
+                "tel:$normalizedPhoneNumber"
+            } else {
+                // Short service numbers were handled above. Other local numbers
+                // keep the generic IMS phone-context.
+                "tel:$normalizedPhoneNumber;phone-context=${carrierSettings.phoneContextForLocalTelUri(realm)}"
+            }
         Rlog.d(logTag, "Outgoing dial target raw=$phoneNumber normalized=$normalizedPhoneNumber uri=$to")
         val sipInstance = "<urn:gsma:imei:${imei.substring(0, 8)}-${imei.substring(8, 14)}-0>"
         val contactTel =
             """<sip:$myTel@$localEndpoint;transport=$transport>;expires=7200;+sip.instance="$sipInstance";+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel";+g.3gpp.smsip;audio"""
         val carrierPaniHeaders = carrierSettings.outgoingPaniHeaders(registrationTech)
 
-        val myHeaders = commonHeaders +
-            """
+        val myHeaders =
+            commonHeaders +
+                """
                 From: <$mySip>
                 To: <$to>
                 P-Preferred-Identity: <$mySip>
@@ -170,7 +173,7 @@ internal object SipOutgoingInviteRequestBuilder {
                 P-Preferred-Service: urn:urn-7:3gpp-service.ims.icsi.mmtel
                 Contact: $contactTel
                 """.toSipHeadersMap() + carrierPaniHeaders +
-            generatedCallIdHeaders - "p-asserted-identity"
+                generatedCallIdHeaders - "p-asserted-identity"
         // P-Preferred-Service: urn:urn-7:3gpp-service.ims.icsi.mmtel
         // Accept-Contact: *;+g.3gpp.icsi-ref="urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel"
 
@@ -197,49 +200,57 @@ internal object SipOutgoingInviteRequestBuilder {
         singtelStockOutgoingCarrier: Boolean,
         singtelPublicSipUri: (String) -> String,
     ): OutgoingInviteCarrierRequestShape {
-        val singtelStockOutgoingTargetUri = if (singtelStockOutgoingCarrier) {
-            singtelPublicSipUri(normalizedPhoneNumber)
-        } else {
-            telUri
-        }
-
-        val singtelStockOutgoingHeaders = if (singtelStockOutgoingCarrier) {
-            val singtelStockIdentity = singtelPublicSipUri(myTel)
-            val singtelStockFromTag = baseHeaders["from"]?.firstOrNull()
-                ?.substringAfter(";tag=", missingDelimiterValue = "")
-                ?.substringBefore(";")
-                ?.takeIf { it.isNotBlank() }
-                ?: "phh${System.currentTimeMillis().toString(16)}"
-            val singtelStockContact = "<sip:$imsi@$localEndpoint;transport=$transport>;expires=7200;" +
-                "+sip.instance=\"$sipInstance\";audio;+g.3gpp.accesstype=\"cellular\";" +
-                "+g.3gpp.icsi-ref=\"urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel\";+g.3gpp.smsip"
-            val singtelCompactContact = "<sip:$imsi@$localEndpoint;transport=$transport>"
-            val singtelStockPaniValue = commonHeaders.entries
-                .firstOrNull { it.key.equals("p-access-network-info", ignoreCase = true) }
-                ?.value
-                ?.firstOrNull()
-                ?: "3GPP-E-UTRAN-FDD;utran-cell-id-3gpp=5250102C6B611D01"
-
-            val singtelStockBaseHeaders = baseHeaders.filterKeys { key ->
-                key.equals("via", ignoreCase = true) ||
-                    key.equals("max-forwards", ignoreCase = true) ||
-                    key.equals("user-agent", ignoreCase = true) ||
-                    key.equals("route", ignoreCase = true) ||
-                    key.equals("call-id", ignoreCase = true) ||
-                    key.equals("security-verify", ignoreCase = true) ||
-                    key.equals("proxy-require", ignoreCase = true)
+        val singtelStockOutgoingTargetUri =
+            if (singtelStockOutgoingCarrier) {
+                singtelPublicSipUri(normalizedPhoneNumber)
+            } else {
+                telUri
             }
 
-            // Direct stock-like SingTel INVITE: whitelist only the dynamic dialog and
-            // security headers, then add the originating MMTEL shape explicitly. Do not
-            // carry the generic TEL-URI identity headers from main.
+        val singtelStockOutgoingHeaders =
+            if (singtelStockOutgoingCarrier) {
+                val singtelStockIdentity = singtelPublicSipUri(myTel)
+                val singtelStockFromTag =
+                    baseHeaders["from"]
+                        ?.firstOrNull()
+                        ?.substringAfter(";tag=", missingDelimiterValue = "")
+                        ?.substringBefore(";")
+                        ?.takeIf { it.isNotBlank() }
+                        ?: "phh${System.currentTimeMillis().toString(16)}"
+                val singtelStockContact =
+                    "<sip:$imsi@$localEndpoint;transport=$transport>;expires=7200;" +
+                        "+sip.instance=\"$sipInstance\";audio;+g.3gpp.accesstype=\"cellular\";" +
+                        "+g.3gpp.icsi-ref=\"urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel\";+g.3gpp.smsip"
+                val singtelCompactContact = "<sip:$imsi@$localEndpoint;transport=$transport>"
+                val singtelStockPaniValue =
+                    commonHeaders.entries
+                        .firstOrNull { it.key.equals("p-access-network-info", ignoreCase = true) }
+                        ?.value
+                        ?.firstOrNull()
+                        ?: "3GPP-E-UTRAN-FDD;utran-cell-id-3gpp=5250102C6B611D01"
+
+                val singtelStockBaseHeaders =
+                    baseHeaders.filterKeys { key ->
+                        key.equals("via", ignoreCase = true) ||
+                            key.equals("max-forwards", ignoreCase = true) ||
+                            key.equals("user-agent", ignoreCase = true) ||
+                            key.equals("route", ignoreCase = true) ||
+                            key.equals("call-id", ignoreCase = true) ||
+                            key.equals("security-verify", ignoreCase = true) ||
+                            key.equals("proxy-require", ignoreCase = true)
+                    }
+
+                // Direct stock-like SingTel INVITE: whitelist only the dynamic dialog and
+                // security headers, then add the originating MMTEL shape explicitly. Do not
+                // carry the generic TEL-URI identity headers from main.
             /*
              * Keep the originating SingTel header set intentionally small.
              * Security-Verify and Content-Type are required/accepted, but
              * optional identity/access/capability headers make the first
              * protected INVITE large enough to be dropped by this IMS path.
              */
-            singtelStockBaseHeaders + """
+                singtelStockBaseHeaders +
+                    """
                 From: <$singtelStockIdentity>;tag=$singtelStockFromTag
                 To: <$singtelStockOutgoingTargetUri>
                 Contact: $singtelCompactContact
@@ -254,9 +265,9 @@ internal object SipOutgoingInviteRequestBuilder {
                 P-Preferred-Service: urn:urn-7:3gpp-service.ims.icsi.mmtel
                 CSeq: 1 INVITE
             """.toSipHeadersMap()
-        } else {
-            baseHeaders
-        }
+            } else {
+                baseHeaders
+            }
 
         return OutgoingInviteCarrierRequestShape(
             targetUri = singtelStockOutgoingTargetUri,
@@ -274,7 +285,7 @@ internal object SipOutgoingInviteRequestBuilder {
                 SipMethod.INVITE,
                 carrierRequestShape.targetUri,
                 carrierRequestShape.headers,
-                outgoingInviteBody
+                outgoingInviteBody,
             )
 
         return OutgoingInviteRequestContext(

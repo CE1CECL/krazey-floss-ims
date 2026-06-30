@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.media.MediaCodec
@@ -20,26 +20,32 @@ object SipAudioCodecNegotiator {
             Rlog.w(logTag, "MediaCodec unavailable for ${audioCodec.name}: mime=${audioCodec.mimeType}", t)
             false
         } finally {
-            try { encoder?.release() } catch (_: Throwable) { }
-            try { decoder?.release() } catch (_: Throwable) { }
+            try {
+                encoder?.release()
+            } catch (_: Throwable) {
+            }
+            try {
+                decoder?.release()
+            } catch (_: Throwable) {
+            }
         }
     }
 
-    fun speechCodecRtpmapName(audioCodec: NegotiatedAudioCodec): String =
-        "${audioCodec.sdpCodecName}/${audioCodec.rtpClockRate}"
+    fun speechCodecRtpmapName(audioCodec: NegotiatedAudioCodec): String = "${audioCodec.sdpCodecName}/${audioCodec.rtpClockRate}"
 
-    fun telephoneEventRtpmapName(audioCodec: NegotiatedAudioCodec): String =
-        "telephone-event/${audioCodec.rtpClockRate}"
+    fun telephoneEventRtpmapName(audioCodec: NegotiatedAudioCodec): String = "telephone-event/${audioCodec.rtpClockRate}"
 
-    fun defaultSpeechFmtpAnswer(track: Int, audioCodec: NegotiatedAudioCodec): String =
+    fun defaultSpeechFmtpAnswer(
+        track: Int,
+        audioCodec: NegotiatedAudioCodec,
+    ): String =
         if (audioCodec == SipAudioCodecs.AMR_WB) {
             "fmtp:$track octet-align=0;mode-change-capability=2;max-red=0"
         } else {
             "fmtp:$track mode-set=7;octet-align=0;max-red=0"
         }
 
-    fun sdpBandwidthAsKbps(audioCodec: NegotiatedAudioCodec): Int =
-        if (audioCodec == SipAudioCodecs.AMR_WB) 88 else 38
+    fun sdpBandwidthAsKbps(audioCodec: NegotiatedAudioCodec): Int = if (audioCodec == SipAudioCodecs.AMR_WB) 88 else 38
 
     fun audioCodecExtras(audioCodec: NegotiatedAudioCodec): Map<String, String> =
         mapOf(
@@ -56,14 +62,15 @@ object SipAudioCodecNegotiator {
         val candidates = SipAudioCodecSdpLogger.parseRemoteAudioCodecCandidates(sdp)
         val amrWbCandidate = SipAudioCodecSdpLogger.bestKnownWidebandCandidate(sdp)
         val amrNbCandidate = SipAudioCodecSdpLogger.bestCurrentlyImplementedCandidate(sdp)
-        val hasAmrWbTelephoneEvent = candidates.any {
-            it.codec == "TELEPHONE-EVENT" && it.rate == SipAudioCodecs.AMR_WB.rtpClockRate
-        }
+        val hasAmrWbTelephoneEvent =
+            candidates.any {
+                it.codec == "TELEPHONE-EVENT" && it.rate == SipAudioCodecs.AMR_WB.rtpClockRate
+            }
 
         val amrWbUsable =
             amrWbCandidate != null &&
-            !amrWbCandidate.fmtp.contains("octet-align=1", ignoreCase = true) &&
-            hasAmrWbTelephoneEvent
+                !amrWbCandidate.fmtp.contains("octet-align=1", ignoreCase = true) &&
+                hasAmrWbTelephoneEvent
 
         if (amrWbUsable && amrWbMediaCodecAvailable) {
             Rlog.w(
@@ -96,19 +103,22 @@ object SipAudioCodecNegotiator {
         val candidates = SipAudioCodecSdpLogger.parseRemoteAudioCodecCandidates(sdp)
         val amrWbCandidate = SipAudioCodecSdpLogger.bestKnownWidebandCandidate(sdp)
         val amrNbCandidate = SipAudioCodecSdpLogger.bestCurrentlyImplementedCandidate(sdp)
-        val hasAmrWbTelephoneEvent = candidates.any {
-            it.codec == "TELEPHONE-EVENT" && it.rate == SipAudioCodecs.AMR_WB.rtpClockRate
-        }
+        val hasAmrWbTelephoneEvent =
+            candidates.any {
+                it.codec == "TELEPHONE-EVENT" && it.rate == SipAudioCodecs.AMR_WB.rtpClockRate
+            }
 
         val amrWbUsable =
             amrWbCandidate != null &&
-            !amrWbCandidate.fmtp.contains("octet-align=1", ignoreCase = true) &&
-            hasAmrWbTelephoneEvent
+                !amrWbCandidate.fmtp.contains("octet-align=1", ignoreCase = true) &&
+                hasAmrWbTelephoneEvent
 
         if (amrWbUsable && amrWbMediaCodecAvailable) {
             Rlog.w(
                 logTag,
-                "$context outgoing answer selected AMR-WB/16000 candidate=${SipAudioCodecSdpLogger.describeRemoteAudioCodecCandidate(amrWbCandidate!!)} " +
+                "$context outgoing answer selected AMR-WB/16000 candidate=${SipAudioCodecSdpLogger.describeRemoteAudioCodecCandidate(
+                    amrWbCandidate!!,
+                )} " +
                     "mediaCodecAvailable=$amrWbMediaCodecAvailable " +
                     "hasTelephoneEvent16000=$hasAmrWbTelephoneEvent",
             )

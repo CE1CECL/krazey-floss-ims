@@ -29,10 +29,11 @@ internal object SipUpdateSdpOfferParser {
         requestCseq: String,
         logTag: String,
     ): UpdateSdpOffer? {
-        val sdp = request.body
-            .toString(Charsets.UTF_8)
-            .split("[\\r\\n]+".toRegex())
-            .filter { it.isNotBlank() }
+        val sdp =
+            request.body
+                .toString(Charsets.UTF_8)
+                .split("[\\r\\n]+".toRegex())
+                .filter { it.isNotBlank() }
 
         Rlog.d(logTag, "Handling UPDATE SDP offer: callId=$requestCallId cseq=$requestCseq sdp=$sdp")
 
@@ -78,7 +79,6 @@ internal object SipUpdateSdpOfferParser {
     }
 }
 
-
 internal data class UpdateSdpMediaSelection(
     val selectedAudioCodec: NegotiatedAudioCodec,
     val amrTrack: Int,
@@ -109,12 +109,13 @@ internal object SipUpdateSdpCallUpdate {
             dtmfTrackDesc = dtmfTrackDesc,
             rtpRemoteAddr = rtpRemoteAddr,
             rtpRemotePort = rtpRemotePort,
-            remoteContact = request.headers["contact"]?.getOrNull(0)
-                ?.let { extractDestinationFromContact(it) }
-                ?: fallbackRemoteContact,
+            remoteContact =
+                request.headers["contact"]
+                    ?.getOrNull(0)
+                    ?.let { extractDestinationFromContact(it) }
+                    ?: fallbackRemoteContact,
         )
 }
-
 
 internal object SipUpdateSdpMediaSelector {
     fun select(
@@ -127,13 +128,14 @@ internal object SipUpdateSdpMediaSelector {
         // Keep the selected speech payload first in SDP answers. Sorting payload IDs can
         // put telephone-event before AMR-WB, e.g. m=audio ... 96 104, which some
         // IMS cores reject as an offer/answer error during precondition UPDATE.
-        val amr = SipUpdateSdpAnswerNegotiator.lookTrackMatching(
-            logTag = logTag,
-            attributes = attributes,
-            offeredPayloads = offeredPayloads,
-            codec = SipAudioCodecNegotiator.speechCodecRtpmapName(selectedAudioCodec),
-            notAdditional = "octet-align=1",
-        )
+        val amr =
+            SipUpdateSdpAnswerNegotiator.lookTrackMatching(
+                logTag = logTag,
+                attributes = attributes,
+                offeredPayloads = offeredPayloads,
+                codec = SipAudioCodecNegotiator.speechCodecRtpmapName(selectedAudioCodec),
+                notAdditional = "octet-align=1",
+            )
         if (amr == null) {
             Rlog.w(
                 logTag,
@@ -143,15 +145,17 @@ internal object SipUpdateSdpMediaSelector {
             return null
         }
         val (amrTrack, amrTrackDesc) = amr
-        val amrFmtpAnswer = SipUpdateSdpAnswerNegotiator.trackRequirements(attributes, amrTrack)
-            ?: SipAudioCodecNegotiator.defaultSpeechFmtpAnswer(amrTrack, selectedAudioCodec)
+        val amrFmtpAnswer =
+            SipUpdateSdpAnswerNegotiator.trackRequirements(attributes, amrTrack)
+                ?: SipAudioCodecNegotiator.defaultSpeechFmtpAnswer(amrTrack, selectedAudioCodec)
 
-        val dtmf = SipUpdateSdpAnswerNegotiator.lookTrackMatching(
-            logTag = logTag,
-            attributes = attributes,
-            offeredPayloads = offeredPayloads,
-            codec = SipAudioCodecNegotiator.telephoneEventRtpmapName(selectedAudioCodec),
-        )
+        val dtmf =
+            SipUpdateSdpAnswerNegotiator.lookTrackMatching(
+                logTag = logTag,
+                attributes = attributes,
+                offeredPayloads = offeredPayloads,
+                codec = SipAudioCodecNegotiator.telephoneEventRtpmapName(selectedAudioCodec),
+            )
         if (dtmf == null) {
             Rlog.w(
                 logTag,
@@ -177,9 +181,7 @@ internal object SipUpdateSdpAnswerNegotiator {
     fun trackRequirements(
         attributes: List<String>,
         track: Int,
-    ): String? {
-        return attributes.firstOrNull { it.startsWith("fmtp:$track") }
-    }
+    ): String? = attributes.firstOrNull { it.startsWith("fmtp:$track") }
 
     fun lookTrackMatching(
         logTag: String,
@@ -190,23 +192,29 @@ internal object SipUpdateSdpAnswerNegotiator {
         notAdditional: String = "",
     ): Pair<Int, String>? {
         val maps = attributes.filter { it.startsWith("rtpmap:") && it.contains(codec) }
-        val matches = maps.mapNotNull { m ->
-            val track = m.split("[: ]+".toRegex()).getOrNull(1)?.toIntOrNull()
-            if (track != null && offeredPayloads.contains(track)) Pair(track, m) else null
-        }
-        val sorted = matches.sortedBy { m ->
-            val fmtp = trackRequirements(attributes, m.first).orEmpty()
-            when {
-                // Our RTP encoder currently sends AMR-NB bandwidth-efficient frames.
-                // SDP without octet-align defaults to octet-align=0, so prefer that
-                // over octet-align=1 when carriers offer both forms in UPDATE.
-                codec.startsWith("AMR") && fmtp.contains("octet-align=1", ignoreCase = true) -> 100
-                codec.startsWith("AMR") && fmtp.isEmpty() -> 0
-                notAdditional.isNotEmpty() && fmtp.contains(notAdditional, ignoreCase = true) -> 90
-                additional.isNotEmpty() && fmtp.contains(additional, ignoreCase = true) -> 0
-                else -> 10
+        val matches =
+            maps.mapNotNull { m ->
+                val track = m.split("[: ]+".toRegex()).getOrNull(1)?.toIntOrNull()
+                if (track != null && offeredPayloads.contains(track)) Pair(track, m) else null
             }
-        }
+        val sorted =
+            matches.sortedBy { m ->
+                val fmtp = trackRequirements(attributes, m.first).orEmpty()
+                when {
+                    // Our RTP encoder currently sends AMR-NB bandwidth-efficient frames.
+                    // SDP without octet-align defaults to octet-align=0, so prefer that
+                    // over octet-align=1 when carriers offer both forms in UPDATE.
+                    codec.startsWith("AMR") && fmtp.contains("octet-align=1", ignoreCase = true) -> 100
+
+                    codec.startsWith("AMR") && fmtp.isEmpty() -> 0
+
+                    notAdditional.isNotEmpty() && fmtp.contains(notAdditional, ignoreCase = true) -> 90
+
+                    additional.isNotEmpty() && fmtp.contains(additional, ignoreCase = true) -> 0
+
+                    else -> 10
+                }
+            }
         Rlog.d(logTag, "UPDATE matching $codec offered=$offeredPayloads got=$sorted")
         return sorted.firstOrNull()
     }
@@ -227,37 +235,42 @@ internal object SipUpdateSdpAnswerBuilder {
         val selectedAudioCodec = call.audioCodec
         val allTracks = listOf(amrTrack, dtmfTrack)
         val ipType = if (localAddr is Inet6Address) "IP6" else "IP4"
-        val owner = request.destination.substringAfter("sip:").substringBefore("@").ifBlank { "-" }
+        val owner =
+            request.destination
+                .substringAfter("sip:")
+                .substringBefore("@")
+                .ifBlank { "-" }
         val sdpVersion = call.localSdpVersion.incrementAndGet()
         val remoteMaxptime = attributes.firstOrNull { it.startsWith("maxptime:") } ?: "maxptime:240"
         val sdpBandwidthAs = SipAudioCodecNegotiator.sdpBandwidthAsKbps(selectedAudioCodec)
 
-        val answerSdpLines = listOf(
-            "v=0",
-            "o=$owner 1 $sdpVersion IN $ipType ${localAddr.hostAddress}",
-            "s=phh voice call",
-            "c=IN $ipType ${localAddr.hostAddress}",
-            "b=AS:$sdpBandwidthAs",
-            "b=RS:0",
-            "b=RR:0",
-            "t=0 0",
-            "m=audio ${call.rtpSocket.localPort} RTP/AVP ${allTracks.joinToString(" ")}",
-            "b=AS:$sdpBandwidthAs",
-            "b=RS:0",
-            "b=RR:0",
-            "a=$amrTrackDesc",
-            "a=ptime:20",
-            "a=$remoteMaxptime",
-            "a=$dtmfTrackDesc",
-            "a=$amrFmtpAnswer",
-            "a=fmtp:$dtmfTrack 0-15",
-            "a=curr:qos local sendrecv",
-            "a=curr:qos remote sendrecv",
-            "a=des:qos mandatory local sendrecv",
-            "a=des:qos mandatory remote sendrecv",
-            "a=conf:qos remote sendrecv",
-            "a=sendrecv",
-        )
+        val answerSdpLines =
+            listOf(
+                "v=0",
+                "o=$owner 1 $sdpVersion IN $ipType ${localAddr.hostAddress}",
+                "s=phh voice call",
+                "c=IN $ipType ${localAddr.hostAddress}",
+                "b=AS:$sdpBandwidthAs",
+                "b=RS:0",
+                "b=RR:0",
+                "t=0 0",
+                "m=audio ${call.rtpSocket.localPort} RTP/AVP ${allTracks.joinToString(" ")}",
+                "b=AS:$sdpBandwidthAs",
+                "b=RS:0",
+                "b=RR:0",
+                "a=$amrTrackDesc",
+                "a=ptime:20",
+                "a=$remoteMaxptime",
+                "a=$dtmfTrackDesc",
+                "a=$amrFmtpAnswer",
+                "a=fmtp:$dtmfTrack 0-15",
+                "a=curr:qos local sendrecv",
+                "a=curr:qos remote sendrecv",
+                "a=des:qos mandatory local sendrecv",
+                "a=des:qos mandatory remote sendrecv",
+                "a=conf:qos remote sendrecv",
+                "a=sendrecv",
+            )
 
         return answerSdpLines.joinToString("\r\n").toByteArray(Charsets.US_ASCII)
     }
@@ -274,16 +287,17 @@ internal object SipUpdateRtpEndpointConnector {
         try {
             if (!call.rtpSocket.isConnected ||
                 call.rtpSocket.inetAddress != rtpRemoteAddr ||
-                call.rtpSocket.port != rtpRemotePort) {
+                call.rtpSocket.port != rtpRemotePort
+            ) {
                 call.rtpSocket.connect(rtpRemoteAddr, rtpRemotePort)
                 Rlog.d(
                     logTag,
-                    "UPDATE connected RTP socket to ${rtpRemoteAddr}:${rtpRemotePort} " +
+                    "UPDATE connected RTP socket to $rtpRemoteAddr:$rtpRemotePort " +
                         "local=${call.rtpSocket.localAddress}:${call.rtpSocket.localPort} callId=$requestCallId",
                 )
             }
         } catch (t: Throwable) {
-            Rlog.w(logTag, "Failed to connect RTP socket from UPDATE to ${rtpRemoteAddr}:${rtpRemotePort} callId=$requestCallId", t)
+            Rlog.w(logTag, "Failed to connect RTP socket from UPDATE to $rtpRemoteAddr:$rtpRemotePort callId=$requestCallId", t)
         }
     }
 }

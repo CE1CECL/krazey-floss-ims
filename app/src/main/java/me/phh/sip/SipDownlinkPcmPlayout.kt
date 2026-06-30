@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.media.AudioTrack
@@ -11,7 +11,10 @@ import kotlin.concurrent.thread
 object SipDownlinkPcmPlayout {
     private const val DOWNLINK_UNDERRUN_CONCEALMENT_FRAMES = 6
 
-    private fun attenuatePcm16LeFrame(frame: ByteArray, gainShift: Int): ByteArray {
+    private fun attenuatePcm16LeFrame(
+        frame: ByteArray,
+        gainShift: Int,
+    ): ByteArray {
         val out = ByteArray(frame.size)
         var i = 0
         while (i + 1 < frame.size) {
@@ -46,7 +49,10 @@ object SipDownlinkPcmPlayout {
             var fillerFrames = 0
             var lastGoodPcmFrame: ByteArray? = null
             var nextWriteAtMs = SystemClock.elapsedRealtime() + 60L
-            Rlog.d(logTag, "Downlink PCM playout started: frameBytes=${buffers.frameBytes} codec=${audioCodec.name}/${audioCodec.sampleRate} gen=$generation")
+            Rlog.d(
+                logTag,
+                "Downlink PCM playout started: frameBytes=${buffers.frameBytes} codec=${audioCodec.name}/${audioCodec.sampleRate} gen=$generation",
+            )
             try {
                 while (buffers.running.get() && !callStopped.get() && callGeneration.get() == generation) {
                     val now = SystemClock.elapsedRealtime()
@@ -81,10 +87,16 @@ object SipDownlinkPcmPlayout {
                                 )
                             }
                         } else if (fillerFrames == 1 || fillerFrames % 50 == 0) {
-                            Rlog.d(logTag, "Downlink PCM playout filler frames=$fillerFrames queued=${buffers.pcmQueue.size} gen=$generation")
+                            Rlog.d(
+                                logTag,
+                                "Downlink PCM playout filler frames=$fillerFrames queued=${buffers.pcmQueue.size} gen=$generation",
+                            )
                         }
                     } else if (fillerFrames > 0) {
-                        Rlog.d(logTag, "Downlink PCM playout recovered after fillerFrames=$fillerFrames queued=${buffers.pcmQueue.size} gen=$generation")
+                        Rlog.d(
+                            logTag,
+                            "Downlink PCM playout recovered after fillerFrames=$fillerFrames queued=${buffers.pcmQueue.size} gen=$generation",
+                        )
                         fillerFrames = 0
                     }
 
@@ -100,6 +112,9 @@ object SipDownlinkPcmPlayout {
             } catch (t: Throwable) {
                 Rlog.w(logTag, "Downlink PCM playout failed", t)
             }
-            Rlog.d(logTag, "Downlink PCM playout exiting: running=${buffers.running.get()} callStopped=${callStopped.get()} genMismatch=${callGeneration.get() != generation} queued=${buffers.pcmQueue.size}")
+            Rlog.d(
+                logTag,
+                "Downlink PCM playout exiting: running=${buffers.running.get()} callStopped=${callStopped.get()} genMismatch=${callGeneration.get() != generation} queued=${buffers.pcmQueue.size}",
+            )
         }
 }

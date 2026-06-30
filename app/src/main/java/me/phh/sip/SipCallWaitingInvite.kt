@@ -21,15 +21,17 @@ internal data class SipCallWaitingInviteInfo(
         get() = hasActiveDifferentCall || hasPendingDifferentOutgoingCall
 
     val looksLikeCarrierCallWaiting: Boolean
-        get() = isInviteWhileBusy &&
-            (hasCommunicationWaitingContentType || hasCommunicationWaitingBody || hasMidCallFeatureTag)
+        get() =
+            isInviteWhileBusy &&
+                (hasCommunicationWaitingContentType || hasCommunicationWaitingBody || hasMidCallFeatureTag)
 
     fun logSummary(): String {
-        val activeDirection = when (activeCallOutgoing) {
-            true -> "outgoing"
-            false -> "incoming"
-            null -> "none"
-        }
+        val activeDirection =
+            when (activeCallOutgoing) {
+                true -> "outgoing"
+                false -> "incoming"
+                null -> "none"
+            }
         return "callId=$incomingCallId contentType=${contentType.ifBlank { "<none>" }} " +
             "cwContentType=$hasCommunicationWaitingContentType " +
             "cwBody=$hasCommunicationWaitingBody midCallFeatureTag=$hasMidCallFeatureTag " +
@@ -47,19 +49,21 @@ internal object SipCallWaitingInviteClassifier {
         pendingOutgoingCallId: String?,
     ): SipCallWaitingInviteInfo {
         val contentType = request.headers["content-type"]?.getOrNull(0).orEmpty()
-        val normalizedContentType = contentType
-            .substringBefore(';')
-            .trim()
-            .lowercase()
+        val normalizedContentType =
+            contentType
+                .substringBefore(';')
+                .trim()
+                .lowercase()
         val bodyText = String(request.body, Charsets.UTF_8)
         val hasCommunicationWaitingContentType =
             normalizedContentType == "application/vnd.3gpp.cw+xml"
         val hasCommunicationWaitingBody =
             bodyText.contains("communication-waiting-indication", ignoreCase = true)
-        val hasMidCallFeatureTag = request.headers.values
-            .asSequence()
-            .flatten()
-            .any { it.contains("+g.3gpp.mid-call", ignoreCase = true) }
+        val hasMidCallFeatureTag =
+            request.headers.values
+                .asSequence()
+                .flatten()
+                .any { it.contains("+g.3gpp.mid-call", ignoreCase = true) }
 
         return SipCallWaitingInviteInfo(
             incomingCallId = incomingCallId,

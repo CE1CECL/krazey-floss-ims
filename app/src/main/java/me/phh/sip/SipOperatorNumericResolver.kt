@@ -43,8 +43,9 @@ object SipOperatorNumericResolver {
         val numericMcc = subscriptionIntField(activeSubscription, "getMcc")
         val numericMnc = subscriptionIntField(activeSubscription, "getMnc")
         if (numericMcc in 1..999 && numericMnc in 0..999) {
-            val fromSubscriptionNumeric = numericMcc.toString().padStart(3, '0') +
-                numericMnc.toString().padStart(if (numericMnc >= 100) 3 else 2, '0')
+            val fromSubscriptionNumeric =
+                numericMcc.toString().padStart(3, '0') +
+                    numericMnc.toString().padStart(if (numericMnc >= 100) 3 else 2, '0')
             if (isValidOperatorNumeric(fromSubscriptionNumeric)) {
                 Rlog.w(
                     TAG,
@@ -74,27 +75,29 @@ object SipOperatorNumericResolver {
         throw IllegalStateException("No usable operator numeric for IMS slotId=$slotId subId=$subId")
     }
 
-    private fun isValidOperatorNumeric(value: String): Boolean {
-        return value.length in 5..6 && value.all { it.isDigit() }
-    }
+    private fun isValidOperatorNumeric(value: String): Boolean = value.length in 5..6 && value.all { it.isDigit() }
 
-    private fun subscriptionStringField(subscriptionInfo: SubscriptionInfo, methodName: String): String {
-        return try {
+    private fun subscriptionStringField(
+        subscriptionInfo: SubscriptionInfo,
+        methodName: String,
+    ): String =
+        try {
             subscriptionInfo.javaClass
                 .getMethod(methodName)
                 .invoke(subscriptionInfo) as? String ?: ""
         } catch (_: Throwable) {
             ""
         }
-    }
 
-    private fun subscriptionIntField(subscriptionInfo: SubscriptionInfo, methodName: String): Int {
-        return try {
+    private fun subscriptionIntField(
+        subscriptionInfo: SubscriptionInfo,
+        methodName: String,
+    ): Int =
+        try {
             subscriptionInfo.javaClass
                 .getMethod(methodName)
                 .invoke(subscriptionInfo) as? Int ?: -1
         } catch (_: Throwable) {
             -1
         }
-    }
 }

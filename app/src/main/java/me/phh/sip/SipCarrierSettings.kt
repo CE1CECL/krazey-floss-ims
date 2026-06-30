@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.telephony.ims.stub.ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN
@@ -27,17 +27,19 @@ data class SipSmsPolicy(
 data class SipInviteFailurePolicy(
     val retryAfter422: Boolean = true,
     val retryIllegalSdpStatusCodes: Set<Int> = setOf(400),
-    val retryIllegalSdpWarningSubstrings: List<String> = listOf(
-        "SDP is illegal",
-        "illegal SDP",
-    ),
+    val retryIllegalSdpWarningSubstrings: List<String> =
+        listOf(
+            "SDP is illegal",
+            "illegal SDP",
+        ),
     val reconnectOnAuthFailure: Boolean = true,
     val authFailureStatusCodes: Set<Int> = setOf(500),
-    val authFailureMarkerSubstrings: List<String> = listOf(
-        "AUTH failure",
-        "not authorised",
-        "not authorized",
-    ),
+    val authFailureMarkerSubstrings: List<String> =
+        listOf(
+            "AUTH failure",
+            "not authorised",
+            "not authorized",
+        ),
     val authFailureReconnectDelayMs: Long = 1_000L,
     val reconnectAfterFinalFailureStatusCodes: Set<Int> = emptySet(),
     val reconnectAfterFinalFailureDelayMs: Long = 1_000L,
@@ -71,22 +73,23 @@ data class SipCarrierPolicy(
         isLocalShortCode(normalizedPhoneNumber) &&
             (plainTelAllLocalShortCodes || normalizedPhoneNumber in plainTelShortCodes)
 
-    fun shouldForceCsfbForDialString(normalizedPhoneNumber: String): Boolean =
-        normalizedPhoneNumber in forceCsfbDialStrings
+    fun shouldForceCsfbForDialString(normalizedPhoneNumber: String): Boolean = normalizedPhoneNumber in forceCsfbDialStrings
 
-    fun isFallbackEmergencyDialString(normalizedPhoneNumber: String): Boolean =
-        normalizedPhoneNumber in fallbackEmergencyDialStrings
+    fun isFallbackEmergencyDialString(normalizedPhoneNumber: String): Boolean = normalizedPhoneNumber in fallbackEmergencyDialStrings
 
     fun phoneContextForLocalTelUri(realm: String): String {
-        val candidate = realm.trim()
-            .removePrefix("sip:")
-            .substringBefore(";")
-            .substringAfter("@")
-            .trim()
+        val candidate =
+            realm
+                .trim()
+                .removePrefix("sip:")
+                .substringBefore(";")
+                .substringAfter("@")
+                .trim()
 
         if (candidate.isNotBlank() &&
             candidate.none { it.isWhitespace() || it == '<' || it == '>' || it == '"' } &&
-            !candidate.contains(":")) {
+            !candidate.contains(":")
+        ) {
             return candidate
         }
 
@@ -98,29 +101,39 @@ data class SipCarrierPolicy(
             return emptyMap()
         }
 
-        val paniValue = when (registrationTech) {
-            REGISTRATION_TECH_IWLAN -> "IEEE-802.11"
-            REGISTRATION_TECH_LTE -> "3GPP-E-UTRAN-FDD"
-            else -> null
-        }
+        val paniValue =
+            when (registrationTech) {
+                REGISTRATION_TECH_IWLAN -> "IEEE-802.11"
+                REGISTRATION_TECH_LTE -> "3GPP-E-UTRAN-FDD"
+                else -> null
+            }
 
         return paniValue?.let { mapOf("P-Access-Network-Info" to listOf(it)) } ?: emptyMap()
     }
 
-    fun useSingTelStockPolicy(realm: String, registerTargetRealm: String = realm): Boolean =
+    fun useSingTelStockPolicy(
+        realm: String,
+        registerTargetRealm: String = realm,
+    ): Boolean =
         outgoingInviteShape == OutgoingInviteShape.SINGTEL_COMPACT_STOCK ||
             realm.equals(SINGTEL_HOME_REALM, ignoreCase = true) ||
             realm.equals(SINGTEL_STOCK_REALM, ignoreCase = true) ||
             registerTargetRealm.equals(SINGTEL_STOCK_REALM, ignoreCase = true)
 
-    fun registerSecurityClientAlgs(realm: String, registerTargetRealm: String = realm): List<String> =
+    fun registerSecurityClientAlgs(
+        realm: String,
+        registerTargetRealm: String = realm,
+    ): List<String> =
         if (useSingTelStockPolicy(realm, registerTargetRealm)) {
             listOf("hmac-sha-1-96")
         } else {
             securityClientAlgs
         }
 
-    fun registerSecurityClientEalgs(realm: String, registerTargetRealm: String = realm): List<String> =
+    fun registerSecurityClientEalgs(
+        realm: String,
+        registerTargetRealm: String = realm,
+    ): List<String> =
         if (useSingTelStockPolicy(realm, registerTargetRealm)) {
             listOf("null")
         } else {
@@ -129,17 +142,22 @@ data class SipCarrierPolicy(
 
     fun singtelPublicSipUri(number: String): String {
         val digits = singtelLocalNumberForPhoneContext(number)
-        val e164 = if (digits.startsWith("+") || digits.startsWith("65")) {
-            if (digits.startsWith("+")) digits else "+$digits"
-        } else {
-            "+65$digits"
-        }
+        val e164 =
+            if (digits.startsWith("+") || digits.startsWith("65")) {
+                if (digits.startsWith("+")) digits else "+$digits"
+            } else {
+                "+65$digits"
+            }
         return "sip:$e164@$SINGTEL_STOCK_REALM"
     }
 
     fun singtelSmsc(): String = SINGTEL_STOCK_SMSC
 
-    fun smsRequestUri(realm: String, smsc: String?, smscSipIdentity: String?): String =
+    fun smsRequestUri(
+        realm: String,
+        smsc: String?,
+        smscSipIdentity: String?,
+    ): String =
         if (useSingTelStockPolicy(realm)) {
             smsc?.let { "sip:${if (it.startsWith("+")) it else "+$it"}@$SINGTEL_STOCK_REALM" }
                 ?: "sip:$SINGTEL_STOCK_REALM"
@@ -147,7 +165,12 @@ data class SipCarrierPolicy(
             smscSipIdentity ?: "sip:$realm"
         }
 
-    fun smsToUri(realm: String, requestUri: String, smsc: String?, smscSipIdentity: String?): String =
+    fun smsToUri(
+        realm: String,
+        requestUri: String,
+        smsc: String?,
+        smscSipIdentity: String?,
+    ): String =
         if (useSingTelStockPolicy(realm)) {
             requestUri
         } else {
@@ -177,68 +200,93 @@ data class SipCarrierPolicy(
         private const val SINGTEL_STOCK_REALM = "ims.singtel.com"
         private const val SINGTEL_STOCK_SMSC = "+6596197777"
 
-        val DEFAULT_FALLBACK_EMERGENCY_DIAL_STRINGS = setOf(
-            "000", // AU and others
-            "110", // DE police and others
-            "112", // EU/common emergency
-            "118",
-            "119",
-            "911", // NANP/common emergency
-            "999", // UK/common emergency
-        )
+        val DEFAULT_FALLBACK_EMERGENCY_DIAL_STRINGS =
+            setOf(
+                "000", // AU and others
+                "110", // DE police and others
+                "112", // EU/common emergency
+                "118",
+                "119",
+                "911", // NANP/common emergency
+                "999", // UK/common emergency
+            )
 
         fun normalizedMncForPhoneContext(mnc: String): String =
-            mnc.trim().trimStart('0').ifBlank { "0" }.padStart(3, '0')
+            mnc
+                .trim()
+                .trimStart('0')
+                .ifBlank { "0" }
+                .padStart(3, '0')
 
-        fun defaultFor(mcc: String, mnc: String): SipCarrierPolicy =
-            SipCarrierPolicy(mcc = mcc, mnc = mnc)
+        fun defaultFor(
+            mcc: String,
+            mnc: String,
+        ): SipCarrierPolicy = SipCarrierPolicy(mcc = mcc, mnc = mnc)
 
-        fun forHomeOperator(mcc: String, mnc: String): SipCarrierPolicy {
+        fun forHomeOperator(
+            mcc: String,
+            mnc: String,
+        ): SipCarrierPolicy {
             val mccMnc = mcc + mnc
             return when (mccMnc) {
-                "219010" -> defaultFor(mcc, mnc).copy(
-                    // A1 HR needs stock access-network headers on REGISTER and
-                    // does not require the optional reg-event SUBSCRIBE to mark
-                    // IMS voice ready.
-                    registerExtraHeaders = mapOf(
-                        "P-Access-Network-Info" to listOf("3GPP-E-UTRAN-FDD"),
-                        "P-Visited-Network-ID" to listOf("\"ims.mnc010.mcc219.3gppnetwork.org\""),
-                    ),
-                    subscribeRegEvent = false,
-                )
+                "219010" -> {
+                    defaultFor(mcc, mnc).copy(
+                        // A1 HR needs stock access-network headers on REGISTER and
+                        // does not require the optional reg-event SUBSCRIBE to mark
+                        // IMS voice ready.
+                        registerExtraHeaders =
+                            mapOf(
+                                "P-Access-Network-Info" to listOf("3GPP-E-UTRAN-FDD"),
+                                "P-Visited-Network-ID" to listOf("\"ims.mnc010.mcc219.3gppnetwork.org\""),
+                            ),
+                        subscribeRegEvent = false,
+                    )
+                }
 
-                "232005" -> defaultFor(mcc, mnc).copy(
-                    // 3 AT service code 333 is not a normal IMS MMTel target.
-                    forceCsfbDialStrings = setOf("333"),
-                )
+                "232005" -> {
+                    defaultFor(mcc, mnc).copy(
+                        // 3 AT service code 333 is not a normal IMS MMTel target.
+                        forceCsfbDialStrings = setOf("333"),
+                    )
+                }
 
-                "286002" -> defaultFor(mcc, mnc).copy(
-                    // Vodafone TR confirmed short service codes as plain TEL
-                    // and needs access-tech PANI on outgoing INVITE.
-                    plainTelShortCodes = setOf("542"),
-                    outgoingPaniPolicy = OutgoingPaniPolicy.REGISTRATION_ACCESS_TECH,
-                )
+                "286002" -> {
+                    defaultFor(mcc, mnc).copy(
+                        // Vodafone TR confirmed short service codes as plain TEL
+                        // and needs access-tech PANI on outgoing INVITE.
+                        plainTelShortCodes = setOf("542"),
+                        outgoingPaniPolicy = OutgoingPaniPolicy.REGISTRATION_ACCESS_TECH,
+                    )
+                }
 
-                "450006" -> defaultFor(mcc, mnc).copy(
-                    // LG U+ can only do UDP and requires non-session AKA.
-                    isControlSocketUdp = true,
-                    requireNonsessAka = true,
-                )
+                "450006" -> {
+                    defaultFor(mcc, mnc).copy(
+                        // LG U+ can only do UDP and requires non-session AKA.
+                        isControlSocketUdp = true,
+                        requireNonsessAka = true,
+                    )
+                }
 
-                "525001" -> defaultFor(mcc, mnc).copy(
-                    // SingTel needs a stock-like compact outgoing INVITE/SMS
-                    // target and restricted security offer.
-                    outgoingInviteShape = OutgoingInviteShape.SINGTEL_COMPACT_STOCK,
-                    securityClientAlgs = listOf("hmac-sha-1-96"),
-                    securityClientEalgs = listOf("null"),
-                )
+                "525001" -> {
+                    defaultFor(mcc, mnc).copy(
+                        // SingTel needs a stock-like compact outgoing INVITE/SMS
+                        // target and restricted security offer.
+                        outgoingInviteShape = OutgoingInviteShape.SINGTEL_COMPACT_STOCK,
+                        securityClientAlgs = listOf("hmac-sha-1-96"),
+                        securityClientEalgs = listOf("null"),
+                    )
+                }
 
-                "208010" -> defaultFor(mcc, mnc).copy(
-                    // 20810 can do TCP and UDP; force UDP for testing.
-                    isControlSocketUdp = true,
-                )
+                "208010" -> {
+                    defaultFor(mcc, mnc).copy(
+                        // 20810 can do TCP and UDP; force UDP for testing.
+                        isControlSocketUdp = true,
+                    )
+                }
 
-                else -> defaultFor(mcc, mnc)
+                else -> {
+                    defaultFor(mcc, mnc)
+                }
             }
         }
     }
@@ -268,63 +316,76 @@ data class SipCarrierSettings(
     val registerNetworkHeaders: SipHeadersMap get() = policy.registerExtraHeaders
     val skipRegEventSubscribe: Boolean get() = !policy.subscribeRegEvent
 
-    fun isLocalShortCode(normalizedPhoneNumber: String): Boolean =
-        policy.isLocalShortCode(normalizedPhoneNumber)
+    fun isLocalShortCode(normalizedPhoneNumber: String): Boolean = policy.isLocalShortCode(normalizedPhoneNumber)
 
     fun shouldKeepShortServicePlainTel(normalizedPhoneNumber: String): Boolean =
         policy.shouldKeepShortServicePlainTel(normalizedPhoneNumber)
 
-    fun shouldForceCsfbForDialString(normalizedPhoneNumber: String): Boolean =
-        policy.shouldForceCsfbForDialString(normalizedPhoneNumber)
+    fun shouldForceCsfbForDialString(normalizedPhoneNumber: String): Boolean = policy.shouldForceCsfbForDialString(normalizedPhoneNumber)
 
-    fun shouldForceCsfbForDialCode(normalizedPhoneNumber: String): Boolean =
-        shouldForceCsfbForDialString(normalizedPhoneNumber)
+    fun shouldForceCsfbForDialCode(normalizedPhoneNumber: String): Boolean = shouldForceCsfbForDialString(normalizedPhoneNumber)
 
-    fun isFallbackEmergencyDialString(normalizedPhoneNumber: String): Boolean =
-        policy.isFallbackEmergencyDialString(normalizedPhoneNumber)
+    fun isFallbackEmergencyDialString(normalizedPhoneNumber: String): Boolean = policy.isFallbackEmergencyDialString(normalizedPhoneNumber)
 
-    fun phoneContextForLocalTelUri(realm: String): String =
-        policy.phoneContextForLocalTelUri(realm)
+    fun phoneContextForLocalTelUri(realm: String): String = policy.phoneContextForLocalTelUri(realm)
 
-    fun outgoingPaniHeaders(registrationTech: Int): SipHeadersMap =
-        policy.outgoingPaniHeaders(registrationTech)
+    fun outgoingPaniHeaders(registrationTech: Int): SipHeadersMap = policy.outgoingPaniHeaders(registrationTech)
 
-    fun useSingTelStockPolicy(realm: String, registerTargetRealm: String = realm): Boolean =
-        policy.useSingTelStockPolicy(realm, registerTargetRealm)
+    fun useSingTelStockPolicy(
+        realm: String,
+        registerTargetRealm: String = realm,
+    ): Boolean = policy.useSingTelStockPolicy(realm, registerTargetRealm)
 
-    fun registerSecurityClientAlgs(realm: String, registerTargetRealm: String = realm): List<String> =
-        policy.registerSecurityClientAlgs(realm, registerTargetRealm)
+    fun registerSecurityClientAlgs(
+        realm: String,
+        registerTargetRealm: String = realm,
+    ): List<String> = policy.registerSecurityClientAlgs(realm, registerTargetRealm)
 
-    fun registerSecurityClientEalgs(realm: String, registerTargetRealm: String = realm): List<String> =
-        policy.registerSecurityClientEalgs(realm, registerTargetRealm)
+    fun registerSecurityClientEalgs(
+        realm: String,
+        registerTargetRealm: String = realm,
+    ): List<String> = policy.registerSecurityClientEalgs(realm, registerTargetRealm)
 
-    fun singtelPublicSipUri(number: String): String =
-        policy.singtelPublicSipUri(number)
+    fun singtelPublicSipUri(number: String): String = policy.singtelPublicSipUri(number)
 
-    fun singtelSmsc(): String =
-        policy.singtelSmsc()
+    fun singtelSmsc(): String = policy.singtelSmsc()
 
-    fun outgoingSmscForImsSms(realm: String, discoveredSmsc: String?): String? =
-        if (useSingTelStockPolicy(realm)) singtelSmsc() else discoveredSmsc
+    fun outgoingSmscForImsSms(
+        realm: String,
+        discoveredSmsc: String?,
+    ): String? = if (useSingTelStockPolicy(realm)) singtelSmsc() else discoveredSmsc
 
-    fun smsRequestUri(realm: String, smsc: String?, smscSipIdentity: String?): String =
-        policy.smsRequestUri(realm, smsc, smscSipIdentity)
+    fun smsRequestUri(
+        realm: String,
+        smsc: String?,
+        smscSipIdentity: String?,
+    ): String = policy.smsRequestUri(realm, smsc, smscSipIdentity)
 
-    fun outgoingSmsRequestUri(realm: String, smsc: String?, smscSipIdentity: String?): String =
-        smsRequestUri(realm, smsc, smscSipIdentity)
+    fun outgoingSmsRequestUri(
+        realm: String,
+        smsc: String?,
+        smscSipIdentity: String?,
+    ): String = smsRequestUri(realm, smsc, smscSipIdentity)
 
-    fun smsToUri(realm: String, requestUri: String, smsc: String?, smscSipIdentity: String?): String =
-        policy.smsToUri(realm, requestUri, smsc, smscSipIdentity)
+    fun smsToUri(
+        realm: String,
+        requestUri: String,
+        smsc: String?,
+        smscSipIdentity: String?,
+    ): String = policy.smsToUri(realm, requestUri, smsc, smscSipIdentity)
 
-    fun outgoingSmsToUri(realm: String, requestUri: String, smsc: String?, smscSipIdentity: String?): String =
-        smsToUri(realm, requestUri, smsc, smscSipIdentity)
+    fun outgoingSmsToUri(
+        realm: String,
+        requestUri: String,
+        smsc: String?,
+        smscSipIdentity: String?,
+    ): String = smsToUri(realm, requestUri, smsc, smscSipIdentity)
 
     companion object {
         fun isLocalShortCode(normalizedPhoneNumber: String): Boolean =
             normalizedPhoneNumber.length in 3..6 && normalizedPhoneNumber.all { it.isDigit() }
 
-        fun normalizedMncForPhoneContext(mnc: String): String =
-            SipCarrierPolicy.normalizedMncForPhoneContext(mnc)
+        fun normalizedMncForPhoneContext(mnc: String): String = SipCarrierPolicy.normalizedMncForPhoneContext(mnc)
 
         fun fromSimOperator(simOperator: String): SipCarrierSettings {
             val mcc = simOperator.substring(0 until 3)

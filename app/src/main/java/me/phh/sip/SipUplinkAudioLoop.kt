@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.media.AudioRecord
@@ -56,16 +56,17 @@ object SipUplinkAudioLoop {
                 logInput = realFrameCount < 5,
             )
 
-            val drainState = SipUplinkAudioEncoder.drainEncodedOutput(
-                logTag = logTag,
-                encoder = encoder,
-                audioCodec = audioCodec,
-                firstPacket = firstPacket,
-                realFrameCount = realFrameCount,
-                nextSequenceNumber = nextSequenceNumber,
-                nextTimestamp = nextTimestamp,
-                sendFrame = sendFrame,
-            )
+            val drainState =
+                SipUplinkAudioEncoder.drainEncodedOutput(
+                    logTag = logTag,
+                    encoder = encoder,
+                    audioCodec = audioCodec,
+                    firstPacket = firstPacket,
+                    realFrameCount = realFrameCount,
+                    nextSequenceNumber = nextSequenceNumber,
+                    nextTimestamp = nextTimestamp,
+                    sendFrame = sendFrame,
+                )
             firstPacket = drainState.firstPacket
             realFrameCount = drainState.realFrameCount
         }

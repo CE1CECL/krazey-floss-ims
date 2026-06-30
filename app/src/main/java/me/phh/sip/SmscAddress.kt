@@ -12,11 +12,12 @@ internal data class smsHeaders(
 )
 
 internal fun decodeSmscScaPdu(raw: String?): String? {
-    val hex = raw
-        ?.trim()
-        ?.trim('"')
-        ?.replace(Regex("\\s+"), "")
-        ?: return null
+    val hex =
+        raw
+            ?.trim()
+            ?.trim('"')
+            ?.replace(Regex("\\s+"), "")
+            ?: return null
 
     if (!hex.matches(Regex("(?i)[0-9a-f]+")) || hex.length < 4 || hex.length % 2 != 0) {
         return null
@@ -28,9 +29,12 @@ internal fun decodeSmscScaPdu(raw: String?): String? {
         if (scaLen < 2 || hex.length != expectedLen) return null
 
         val addrHex = hex.substring(4, expectedLen)
-        val digits = addrHex.chunked(2).joinToString("") { octet ->
-            "${octet[1]}${octet[0]}"
-        }.trimEnd('F', 'f')
+        val digits =
+            addrHex
+                .chunked(2)
+                .joinToString("") { octet ->
+                    "${octet[1]}${octet[0]}"
+                }.trimEnd('F', 'f')
 
         if (digits.length < 5) return null
 
@@ -43,11 +47,12 @@ internal fun decodeSmscScaPdu(raw: String?): String? {
 }
 
 internal fun normalizeSmscNumber(raw: String?): String? {
-    val trimmed = raw
-        ?.trim()
-        ?.trim('"')
-        ?.takeIf { it.isNotBlank() && it != "null" }
-        ?: return null
+    val trimmed =
+        raw
+            ?.trim()
+            ?.trim('"')
+            ?.takeIf { it.isNotBlank() && it != "null" }
+            ?: return null
 
     decodeSmscScaPdu(trimmed)?.let { decoded ->
         Rlog.d(SMSC_TAG, "Decoded SMSC SCA-PDU $trimmed -> $decoded")

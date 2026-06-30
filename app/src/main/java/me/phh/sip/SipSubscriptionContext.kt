@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.content.Context
@@ -21,15 +21,16 @@ data class SipSubscriptionContext(
         ): SipSubscriptionContext {
             val subscriptionManager = ctxt.getSystemService(SubscriptionManager::class.java)
             val activeSubscriptions = subscriptionManager.activeSubscriptionInfoList.orEmpty()
-            val activeSubscription = activeSubscriptions.firstOrNull {
-                it.simSlotIndex == slotId && it.subscriptionId == requestedSubId
-            } ?: activeSubscriptions.firstOrNull {
-                it.subscriptionId == requestedSubId
-            } ?: activeSubscriptions.firstOrNull {
-                it.simSlotIndex == slotId
-            } ?: throw IllegalStateException(
-                "No active subscription for slotId=$slotId requestedSubId=$requestedSubId"
-            )
+            val activeSubscription =
+                activeSubscriptions.firstOrNull {
+                    it.simSlotIndex == slotId && it.subscriptionId == requestedSubId
+                } ?: activeSubscriptions.firstOrNull {
+                    it.subscriptionId == requestedSubId
+                } ?: activeSubscriptions.firstOrNull {
+                    it.simSlotIndex == slotId
+                } ?: throw IllegalStateException(
+                    "No active subscription for slotId=$slotId requestedSubId=$requestedSubId",
+                )
 
             val subId = activeSubscription.subscriptionId
             return SipSubscriptionContext(

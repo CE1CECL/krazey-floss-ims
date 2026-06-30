@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -20,11 +20,12 @@ object SipDtmfTimestampAllocator {
         while (true) {
             val mediaTimestamp = mediaTimestampSamples.get()
             val previousDtmfTimestamp = dtmfTimestampSamples.get()
-            val candidate = if (previousDtmfTimestamp <= 0) {
-                mediaTimestamp.coerceAtLeast(audioCodec.rtpTimestampStep)
-            } else {
-                maxOf(mediaTimestamp, previousDtmfTimestamp + minimumStepSamples)
-            }
+            val candidate =
+                if (previousDtmfTimestamp <= 0) {
+                    mediaTimestamp.coerceAtLeast(audioCodec.rtpTimestampStep)
+                } else {
+                    maxOf(mediaTimestamp, previousDtmfTimestamp + minimumStepSamples)
+                }
 
             if (dtmfTimestampSamples.compareAndSet(previousDtmfTimestamp, candidate)) {
                 return candidate

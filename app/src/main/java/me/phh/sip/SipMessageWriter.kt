@@ -10,8 +10,8 @@ internal object SipMessageWriter {
         writer: OutputStream,
         bytes: ByteArray,
         label: String,
-    ): Boolean {
-        return try {
+    ): Boolean =
+        try {
             synchronized(writer) {
                 writer.write(bytes)
                 writer.flush()
@@ -21,5 +21,4 @@ internal object SipMessageWriter {
             Rlog.w(tag, "Failed to write SIP bytes for $label", t)
             false
         }
-    }
 }

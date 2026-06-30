@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.net.IpSecManager
@@ -19,16 +19,17 @@ object SipOperationWatchdog {
     ) {
         val finished = AtomicBoolean(false)
         var failure: Throwable? = null
-        val connectThread = thread(name = "PhhImsSocketConnect-$label", isDaemon = true) {
-            try {
-                Rlog.d(logTag, "$label SIP socket connect start remote=$remoteAddress:$remotePort")
-                connection.connect(remotePort)
-            } catch (t: Throwable) {
-                failure = t
-            } finally {
-                finished.set(true)
+        val connectThread =
+            thread(name = "PhhImsSocketConnect-$label", isDaemon = true) {
+                try {
+                    Rlog.d(logTag, "$label SIP socket connect start remote=$remoteAddress:$remotePort")
+                    connection.connect(remotePort)
+                } catch (t: Throwable) {
+                    failure = t
+                } finally {
+                    finished.set(true)
+                }
             }
-        }
 
         connectThread.join(timeoutMs)
         if (!finished.get()) {
@@ -58,29 +59,32 @@ object SipOperationWatchdog {
         val finished = AtomicBoolean(false)
         var allocated: IpSecManager.SecurityParameterIndex? = null
         var failure: Throwable? = null
-        val allocThread = thread(name = "PhhImsIpsecAllocate-$label", isDaemon = true) {
-            try {
-                Rlog.d(
-                    logTag,
-                    "$label allocation start address=$address" +
-                        if (requestedSpi != null) " requestedSpi=$requestedSpi" else "",
-                )
-                allocated = if (requestedSpi != null) {
-                    ipSecManager.allocateSecurityParameterIndex(address, requestedSpi)
-                } else {
-                    ipSecManager.allocateSecurityParameterIndex(address)
+        val allocThread =
+            thread(name = "PhhImsIpsecAllocate-$label", isDaemon = true) {
+                try {
+                    Rlog.d(
+                        logTag,
+                        "$label allocation start address=$address" +
+                            if (requestedSpi != null) " requestedSpi=$requestedSpi" else "",
+                    )
+                    allocated =
+                        if (requestedSpi != null) {
+                            ipSecManager.allocateSecurityParameterIndex(address, requestedSpi)
+                        } else {
+                            ipSecManager.allocateSecurityParameterIndex(address)
+                        }
+                } catch (t: Throwable) {
+                    failure = t
+                } finally {
+                    finished.set(true)
                 }
-            } catch (t: Throwable) {
-                failure = t
-            } finally {
-                finished.set(true)
             }
-        }
 
         allocThread.join(timeoutMs)
         if (!finished.get()) {
-            val reason = "$label allocation timed out after ${timeoutMs}ms address=$address" +
-                if (requestedSpi != null) " requestedSpi=$requestedSpi" else ""
+            val reason =
+                "$label allocation timed out after ${timeoutMs}ms address=$address" +
+                    if (requestedSpi != null) " requestedSpi=$requestedSpi" else ""
             Rlog.w(logTag, reason)
             throw SocketTimeoutException(reason)
         }

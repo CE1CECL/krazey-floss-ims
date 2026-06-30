@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.media.AudioFormat
@@ -17,9 +17,8 @@ object SipAudioRecordFactory {
             AudioFormat.ENCODING_PCM_16BIT,
             bufferSize,
         )
-    fun minBufferSize(
-        audioCodec: NegotiatedAudioCodec = SipAudioCodecs.AMR_NB,
-    ): Int =
+
+    fun minBufferSize(audioCodec: NegotiatedAudioCodec = SipAudioCodecs.AMR_NB): Int =
         AudioRecord.getMinBufferSize(
             audioCodec.sampleRate,
             AudioFormat.CHANNEL_IN_MONO,

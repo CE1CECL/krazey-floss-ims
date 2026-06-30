@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 data class SipSecurityServerSelection(
@@ -22,14 +22,17 @@ object SipSecurityServerSelector {
                     current.append(c)
                     escaped = false
                 }
+
                 c == '\\' && inQuotes -> {
                     current.append(c)
                     escaped = true
                 }
+
                 c == '"' -> {
                     current.append(c)
                     inQuotes = !inQuotes
                 }
+
                 c == ',' && !inQuotes -> {
                     val mechanism = current.toString().trim()
                     if (mechanism.isNotEmpty()) {
@@ -37,7 +40,10 @@ object SipSecurityServerSelector {
                     }
                     current.clear()
                 }
-                else -> current.append(c)
+
+                else -> {
+                    current.append(c)
+                }
             }
         }
 
@@ -50,14 +56,15 @@ object SipSecurityServerSelector {
     }
 
     private fun normalizeParams(rawParams: Map<String, String?>): Map<String, String> =
-        rawParams.mapNotNull { (key, value) ->
-            val normalizedValue = value?.trim()?.lowercase()
-            if (normalizedValue.isNullOrEmpty()) {
-                null
-            } else {
-                key.trim().lowercase() to normalizedValue
-            }
-        }.toMap()
+        rawParams
+            .mapNotNull { (key, value) ->
+                val normalizedValue = value?.trim()?.lowercase()
+                if (normalizedValue.isNullOrEmpty()) {
+                    null
+                } else {
+                    key.trim().lowercase() to normalizedValue
+                }
+            }.toMap()
 
     private fun hasValidSpi(value: String?): Boolean {
         val parsed = value?.toLongOrNull() ?: return false
@@ -69,7 +76,10 @@ object SipSecurityServerSelector {
         return parsed in 1..65535
     }
 
-    private fun isSupportedIpsecOffer(type: String, params: Map<String, String>): Boolean =
+    private fun isSupportedIpsecOffer(
+        type: String,
+        params: Map<String, String>,
+    ): Boolean =
         type == "ipsec-3gpp" &&
             supportedAlgorithms.contains(params["alg"]) &&
             supportedEncryptionAlgorithms.contains(params["ealg"] ?: "null") &&
@@ -79,16 +89,16 @@ object SipSecurityServerSelector {
             hasValidPort(params["port-s"])
 
     fun select(securityServerHeaders: List<String>): SipSecurityServerSelection {
-        val supported = securityServerHeaders
-            .flatMap { header -> splitSecurityServerMechanisms(header) }
-            .map { mechanism ->
-                val (rawType, rawParams) = mechanism.getParams()
-                rawType.trim().lowercase() to normalizeParams(rawParams)
-            }
-            .filter { (type, params) -> isSupportedIpsecOffer(type, params) }
-            .sortedByDescending { (_, params) ->
-                params["q"]?.toFloatOrNull() ?: 0f
-            }
+        val supported =
+            securityServerHeaders
+                .flatMap { header -> splitSecurityServerMechanisms(header) }
+                .map { mechanism ->
+                    val (rawType, rawParams) = mechanism.getParams()
+                    rawType.trim().lowercase() to normalizeParams(rawParams)
+                }.filter { (type, params) -> isSupportedIpsecOffer(type, params) }
+                .sortedByDescending { (_, params) ->
+                    params["q"]?.toFloatOrNull() ?: 0f
+                }
 
         require(supported.isNotEmpty()) {
             "No supported Security-Server header in ${securityServerHeaders.joinToString(" | ")}"

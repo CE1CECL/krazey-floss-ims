@@ -4,7 +4,6 @@ import android.telephony.Rlog
 import java.net.DatagramSocket
 import java.net.InetAddress
 
-
 internal data class OutgoingDialogSdpAnswer(
     val isPrecondition: Boolean,
     val respSdp: List<String>,
@@ -24,6 +23,7 @@ internal data class OutgoingDialogMediaSelection(
     val dialogDtmfTrack: Int,
     val dialogDtmfTrackDesc: String,
 )
+
 internal data class OutgoingDialogRtpEndpoint(
     val rtpRemoteAddr: InetAddress,
     val rtpRemotePortInt: Int,
@@ -51,24 +51,9 @@ internal enum class OutgoingFinalInviteMediaThreadAction {
 }
 
 internal object SipOutgoingDialogSdp {
+    fun finalAnswerAfterLocalCancelReason(): String = "final answer after local CANCEL"
 
-
-
-
-
-
-
-
-
-
-
-
-
-    fun finalAnswerAfterLocalCancelReason(): String =
-        "final answer after local CANCEL"
-
-    fun finalInviteAnswerReason(): String =
-        "final INVITE answer"
+    fun finalInviteAnswerReason(): String = "final INVITE answer"
 
     fun finalInviteMediaThreadAction(
         startedNow: Boolean,
@@ -86,15 +71,20 @@ internal object SipOutgoingDialogSdp {
         answer: OutgoingDialogSdpAnswer,
     ): String =
         when (action) {
-            OutgoingFinalInviteMediaThreadAction.START ->
+            OutgoingFinalInviteMediaThreadAction.START -> {
                 "Starting outgoing media threads from final INVITE SDP"
-            OutgoingFinalInviteMediaThreadAction.RESTART ->
+            }
+
+            OutgoingFinalInviteMediaThreadAction.RESTART -> {
                 "Restarting outgoing media threads after final INVITE SDP media change: " +
                     "generation=$mediaRestartGeneration " +
                     "codec=${answer.dialogAudioCodec.name}/${answer.dialogAudioCodec.sampleRate} " +
                     "amrTrack=${answer.dialogAmrTrack} dtmfTrack=${answer.dialogDtmfTrack}"
-            OutgoingFinalInviteMediaThreadAction.ALREADY_STARTED ->
+            }
+
+            OutgoingFinalInviteMediaThreadAction.ALREADY_STARTED -> {
                 "Outgoing media threads already started before final INVITE SDP"
+            }
         }
 
     fun finalInviteSdpMediaState(
@@ -131,15 +121,11 @@ internal object SipOutgoingDialogSdp {
         )
     }
 
+    fun startingOutgoingMediaFromPrecondition183SdpLog(): String = "Starting outgoing media threads from precondition 183 SDP"
 
-    fun startingOutgoingMediaFromPrecondition183SdpLog(): String =
-        "Starting outgoing media threads from precondition 183 SDP"
+    fun sendingPreconditionUpdateLog(request: SipRequest): String = "Sending $request"
 
-    fun sendingPreconditionUpdateLog(request: SipRequest): String =
-        "Sending $request"
-
-    fun preconditionUpdateWriteLabel(): String =
-        "SipHandler msg2"
+    fun preconditionUpdateWriteLabel(): String = "SipHandler msg2"
 
     fun buildPreconditionUpdateRequest(
         remoteContact: String?,
@@ -159,15 +145,18 @@ internal object SipOutgoingDialogSdp {
         respSdp: List<String>,
     ): OutgoingPrecondition183State {
         Rlog.d(logTag, "Handling precondition...")
-        val currLocal = respSdp.first { it.startsWith("a=curr:qos local")}
+        val currLocal = respSdp.first { it.startsWith("a=curr:qos local") }
         // No resource has been allocated at either side
         val localNone = currLocal.contains("none")
         Rlog.d(logTag, "precondition: Curr is $currLocal $localNone")
-        val currRemote = respSdp.first { it.startsWith("a=curr:qos remote")}
+        val currRemote = respSdp.first { it.startsWith("a=curr:qos remote") }
         val remoteNone = currRemote.contains("none")
         val remoteHasLocalQos = currLocal.contains("sendrecv")
         val needsLocalQosUpdate = localNone || remoteNone
-        Rlog.d(logTag, "precondition: Remote is $currRemote remoteNone=$remoteNone remoteHasLocalQos=$remoteHasLocalQos needsLocalQosUpdate=$needsLocalQosUpdate")
+        Rlog.d(
+            logTag,
+            "precondition: Remote is $currRemote remoteNone=$remoteNone remoteHasLocalQos=$remoteHasLocalQos needsLocalQosUpdate=$needsLocalQosUpdate",
+        )
 
         return OutgoingPrecondition183State(
             remoteHasLocalQos = remoteHasLocalQos,
@@ -183,42 +172,51 @@ internal object SipOutgoingDialogSdp {
     ): ByteArray {
         val remoteMaxptimeLine = respSdp.firstOrNull { it.startsWith("a=maxptime:") } ?: "a=maxptime:40"
 
-        val localUpdateSdpLines = originalInviteSdp.toString(Charsets.UTF_8)
-            .split("[\r\n]+".toRegex())
-            .filter { it.isNotBlank() }
-            .map { line ->
-                when {
-                    line.startsWith("o=") -> {
-                        val v = nextLocalSdpVersion()
-                        line.replace(Regex("^(o=\\S+\\s+\\S+\\s+)\\S+(\\s+IN\\s+IP[46]\\s+.*)$"), "$1$v$2")
+        val localUpdateSdpLines =
+            originalInviteSdp
+                .toString(Charsets.UTF_8)
+                .split("[\r\n]+".toRegex())
+                .filter { it.isNotBlank() }
+                .map { line ->
+                    when {
+                        line.startsWith("o=") -> {
+                            val v = nextLocalSdpVersion()
+                            line.replace(Regex("^(o=\\S+\\s+\\S+\\s+)\\S+(\\s+IN\\s+IP[46]\\s+.*)$"), "$1$v$2")
+                        }
+
+                        line.startsWith("a=maxptime:") -> {
+                            remoteMaxptimeLine
+                        }
+
+                        line.startsWith("a=curr:qos local") -> {
+                            "a=curr:qos local sendrecv"
+                        }
+
+                        line.startsWith("a=curr:qos remote") -> {
+                            if (remoteHasLocalQos) "a=curr:qos remote sendrecv" else "a=curr:qos remote none"
+                        }
+
+                        else -> {
+                            line
+                        }
                     }
-                    line.startsWith("a=maxptime:") -> remoteMaxptimeLine
-                    line.startsWith("a=curr:qos local") -> "a=curr:qos local sendrecv"
-                    line.startsWith("a=curr:qos remote") -> if (remoteHasLocalQos) "a=curr:qos remote sendrecv" else "a=curr:qos remote none"
-                    else -> line
+                }.let { lines ->
+                    if (lines.any { it.startsWith("a=conf:qos remote") }) {
+                        lines
+                    } else {
+                        lines + "a=conf:qos remote sendrecv"
+                    }
                 }
-            }
-            .let { lines ->
-                if (lines.any { it.startsWith("a=conf:qos remote") }) {
-                    lines
-                } else {
-                    lines + "a=conf:qos remote sendrecv"
-                }
-            }
 
         return localUpdateSdpLines.joinToString("\r\n").toByteArray(Charsets.US_ASCII)
     }
 
-
-    fun startingOutgoingMediaFromNonPrecondition183SdpLog(): String =
-        "Starting outgoing media threads from non-precondition 183 SDP"
-
+    fun startingOutgoingMediaFromNonPrecondition183SdpLog(): String = "Starting outgoing media threads from non-precondition 183 SDP"
 
     fun shouldStartMediaForNonPrecondition183(
         response: SipResponse,
         isPrecondition: Boolean,
-    ): Boolean =
-        !isPrecondition && response.statusCode == 183
+    ): Boolean = !isPrecondition && response.statusCode == 183
 
     fun installLogMessage(
         response: SipResponse,
@@ -230,10 +228,11 @@ internal object SipOutgoingDialogSdp {
         nextLocalCseq: Int?,
         route: List<String>?,
     ): String {
-        val outgoingDialogPhase = installPhase(
-            response = response,
-            responseCseq = responseCseq,
-        )
+        val outgoingDialogPhase =
+            installPhase(
+                response = response,
+                responseCseq = responseCseq,
+            )
         return "Outgoing $outgoingDialogPhase dialog SDP: status=${response.statusCode} cseq=$responseCseq " +
             "codec=${audioCodec?.name}/${audioCodec?.sampleRate} " +
             "amrTrack=$amrTrack dtmfTrack=$dtmfTrack " +
@@ -305,30 +304,37 @@ internal object SipOutgoingDialogSdp {
 
         if (!isSdp) return null
 
-        val respSdp = response.body.toString(Charsets.UTF_8).split("[\r\n]+".toRegex()).toList()
+        val respSdp =
+            response.body
+                .toString(Charsets.UTF_8)
+                .split("[\r\n]+".toRegex())
+                .toList()
         SipAudioCodecSdpLogger.logRemoteAudioCodecCandidates(
             tag = logTag,
             context = "outgoing SDP response ${response.statusCode} callId=${response.callIdOrEmpty()}",
             sdp = respSdp,
         )
 
-        val respAttributes = respSdp
-            .filter { it.startsWith("a=") }
-            .map { it.substring(2) }
-        val outgoingDialogMediaSelection = selectMediaFromAnswer(
-            logTag = logTag,
-            response = response,
-            respSdp = respSdp,
-            respAttributes = respAttributes,
-            amrNbTrack = amrNbTrack,
-            dtmfNbTrack = dtmfNbTrack,
-            amrWbMediaCodecAvailable = amrWbMediaCodecAvailable,
-        )
-        val outgoingDialogRtpEndpoint = connectRtpEndpointFromAnswer(
-            logTag = logTag,
-            respSdp = respSdp,
-            rtpSocket = rtpSocket,
-        )
+        val respAttributes =
+            respSdp
+                .filter { it.startsWith("a=") }
+                .map { it.substring(2) }
+        val outgoingDialogMediaSelection =
+            selectMediaFromAnswer(
+                logTag = logTag,
+                response = response,
+                respSdp = respSdp,
+                respAttributes = respAttributes,
+                amrNbTrack = amrNbTrack,
+                dtmfNbTrack = dtmfNbTrack,
+                amrWbMediaCodecAvailable = amrWbMediaCodecAvailable,
+            )
+        val outgoingDialogRtpEndpoint =
+            connectRtpEndpointFromAnswer(
+                logTag = logTag,
+                respSdp = respSdp,
+                rtpSocket = rtpSocket,
+            )
 
         return buildAnswer(
             isPrecondition = isPrecondition,
@@ -348,50 +354,59 @@ internal object SipOutgoingDialogSdp {
         amrWbMediaCodecAvailable: Boolean,
     ): OutgoingDialogMediaSelection {
         fun sdpElement(command: String): String? {
-            val v = respSdp.firstOrNull { it.startsWith("$command=")} ?: return null
+            val v = respSdp.firstOrNull { it.startsWith("$command=") } ?: return null
             return v.substring(2)
         }
 
-        fun responseTrackRequirements(track: Int): String? =
-            respAttributes.firstOrNull { it.startsWith("fmtp:$track") }
+        fun responseTrackRequirements(track: Int): String? = respAttributes.firstOrNull { it.startsWith("fmtp:$track") }
 
-        fun lookResponseTrackMatching(codec: String, notAdditional: String = ""): Pair<Int, String>? {
-            val offeredPayloads = sdpElement("m")
-                ?.trim()
-                ?.split("\\s+".toRegex())
-                ?.drop(3)
-                ?.mapNotNull { it.toIntOrNull() }
-                ?.toSet()
-                .orEmpty()
+        fun lookResponseTrackMatching(
+            codec: String,
+            notAdditional: String = "",
+        ): Pair<Int, String>? {
+            val offeredPayloads =
+                sdpElement("m")
+                    ?.trim()
+                    ?.split("\\s+".toRegex())
+                    ?.drop(3)
+                    ?.mapNotNull { it.toIntOrNull() }
+                    ?.toSet()
+                    .orEmpty()
             val maps = respAttributes.filter { it.startsWith("rtpmap:") && it.contains(codec) }
-            val matches = maps.mapNotNull { m ->
-                val track = m.split("[: ]+".toRegex()).getOrNull(1)?.toIntOrNull()
-                if (track != null && offeredPayloads.contains(track)) Pair(track, m) else null
-            }
-            val sorted = matches.sortedBy { m ->
-                val fmtp = responseTrackRequirements(m.first).orEmpty()
-                when {
-                    fmtp.contains("octet-align=1", ignoreCase = true) &&
-                        notAdditional.isNotEmpty() &&
-                        fmtp.contains(notAdditional, ignoreCase = true) -> 100
-                    fmtp.contains("octet-align=1", ignoreCase = true) -> 100
-                    else -> 0
+            val matches =
+                maps.mapNotNull { m ->
+                    val track = m.split("[: ]+".toRegex()).getOrNull(1)?.toIntOrNull()
+                    if (track != null && offeredPayloads.contains(track)) Pair(track, m) else null
                 }
-            }
+            val sorted =
+                matches.sortedBy { m ->
+                    val fmtp = responseTrackRequirements(m.first).orEmpty()
+                    when {
+                        fmtp.contains("octet-align=1", ignoreCase = true) &&
+                            notAdditional.isNotEmpty() &&
+                            fmtp.contains(notAdditional, ignoreCase = true) -> 100
+
+                        fmtp.contains("octet-align=1", ignoreCase = true) -> 100
+
+                        else -> 0
+                    }
+                }
             Rlog.d(logTag, "Outgoing answer matching $codec offered=$offeredPayloads got=$sorted")
             return sorted.firstOrNull()
         }
 
-        val selectedAudioCodec = SipAudioCodecNegotiator.selectOutgoingSpeechCodecFromAnswer(
-            logTag = logTag,
-            sdp = respSdp,
-            context = "outgoing SDP response ${response.statusCode} callId=${response.callIdOrEmpty()}",
-            amrWbMediaCodecAvailable = amrWbMediaCodecAvailable,
-        )
-        val selectedAmr = lookResponseTrackMatching(
-            SipAudioCodecNegotiator.speechCodecRtpmapName(selectedAudioCodec),
-            notAdditional = "octet-align=1",
-        )
+        val selectedAudioCodec =
+            SipAudioCodecNegotiator.selectOutgoingSpeechCodecFromAnswer(
+                logTag = logTag,
+                sdp = respSdp,
+                context = "outgoing SDP response ${response.statusCode} callId=${response.callIdOrEmpty()}",
+                amrWbMediaCodecAvailable = amrWbMediaCodecAvailable,
+            )
+        val selectedAmr =
+            lookResponseTrackMatching(
+                SipAudioCodecNegotiator.speechCodecRtpmapName(selectedAudioCodec),
+                notAdditional = "octet-align=1",
+            )
         if (selectedAmr == null) {
             Rlog.w(
                 logTag,
@@ -399,9 +414,10 @@ internal object SipOutgoingDialogSdp {
                     "falling back to AMR-NB/8000 tracks",
             )
         }
-        val selectedDtmf = lookResponseTrackMatching(
-            SipAudioCodecNegotiator.telephoneEventRtpmapName(selectedAudioCodec),
-        )
+        val selectedDtmf =
+            lookResponseTrackMatching(
+                SipAudioCodecNegotiator.telephoneEventRtpmapName(selectedAudioCodec),
+            )
         if (selectedDtmf == null) {
             Rlog.w(
                 logTag,
@@ -449,7 +465,7 @@ internal object SipOutgoingDialogSdp {
         rtpSocket: DatagramSocket,
     ): OutgoingDialogRtpEndpoint {
         fun sdpElement(command: String): String? {
-            val v = respSdp.firstOrNull { it.startsWith("$command=")} ?: return null
+            val v = respSdp.firstOrNull { it.startsWith("$command=") } ?: return null
             return v.substring(2)
         }
 
@@ -459,10 +475,13 @@ internal object SipOutgoingDialogSdp {
         try {
             if (!rtpSocket.isConnected || rtpSocket.inetAddress != rtpRemoteAddr || rtpSocket.port != rtpRemotePortInt) {
                 rtpSocket.connect(rtpRemoteAddr, rtpRemotePortInt)
-                Rlog.d(logTag, "Outgoing RTP socket connected to ${rtpRemoteAddr}:${rtpRemotePortInt} local=${rtpSocket.localAddress}:${rtpSocket.localPort}")
+                Rlog.d(
+                    logTag,
+                    "Outgoing RTP socket connected to $rtpRemoteAddr:$rtpRemotePortInt local=${rtpSocket.localAddress}:${rtpSocket.localPort}",
+                )
             }
         } catch (e: Exception) {
-            Rlog.w(logTag, "Failed to connect outgoing RTP socket to ${rtpRemoteAddr}:${rtpRemotePortInt}", e)
+            Rlog.w(logTag, "Failed to connect outgoing RTP socket to $rtpRemoteAddr:$rtpRemotePortInt", e)
         }
 
         return OutgoingDialogRtpEndpoint(

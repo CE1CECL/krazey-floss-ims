@@ -19,6 +19,7 @@ internal sealed class ImsNetworkEndpointResolution {
     ) : ImsNetworkEndpointResolution()
 
     object WaitingForPcscf : ImsNetworkEndpointResolution()
+
     object NoLocalAddress : ImsNetworkEndpointResolution()
 }
 
@@ -40,15 +41,16 @@ internal object ImsNetworkState {
             return REGISTRATION_TECH_IWLAN
         }
 
-        val caps = if (network != null) {
-            try {
-                connectivityManager.getNetworkCapabilities(network)
-            } catch (_: Throwable) {
+        val caps =
+            if (network != null) {
+                try {
+                    connectivityManager.getNetworkCapabilities(network)
+                } catch (_: Throwable) {
+                    null
+                }
+            } else {
                 null
             }
-        } else {
-            null
-        }
 
         return if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
             REGISTRATION_TECH_IWLAN
@@ -57,19 +59,17 @@ internal object ImsNetworkState {
         }
     }
 
-    fun getPcscfServers(lp: LinkProperties): List<InetAddress> {
-        return (lp.javaClass.getMethod("getPcscfServers").invoke(lp) as List<*>)
+    fun getPcscfServers(lp: LinkProperties): List<InetAddress> =
+        (lp.javaClass.getMethod("getPcscfServers").invoke(lp) as List<*>)
             .filterIsInstance<InetAddress>()
             .sortedBy { if (it is Inet6Address) 0 else 1 }
-    }
 
-    fun getImsLocalAddress(lp: LinkProperties): InetAddress? {
-        return lp.linkAddresses
+    fun getImsLocalAddress(lp: LinkProperties): InetAddress? =
+        lp.linkAddresses
             .map { it.address }
             .filter { !it.isAnyLocalAddress && !it.isLoopbackAddress }
             .sortedBy { if (it is Inet6Address) 0 else 1 }
             .firstOrNull()
-    }
 
     fun resolveEndpoint(
         tag: String,
@@ -79,39 +79,41 @@ internal object ImsNetworkState {
         preferredPcscf: InetAddress? = null,
     ): ImsNetworkEndpointResolution {
         val pcscfs = getPcscfServers(lp)
-        val pcscf = preferredPcscf ?: if (pcscfs.isNotEmpty()) {
-            pcscfs[0]
-        } else {
-            // RIL did not provide P-CSCF via LinkProperties. Try standard
-            // 3GPP DNS discovery (TS 23.003 §13.2): resolve the well-known
-            // IMS domain for this PLMN.
-            val dnsFallback = try {
-                InetAddress.getByName("ims.mnc${mnc}.mcc${mcc}.pub.3gppnetwork.org")
-            } catch (t: Throwable) {
-                null
-            } ?: try {
-                InetAddress.getByName("ims.mnc${mnc}.mcc${mcc}.3gppnetwork.org")
-            } catch (t: Throwable) {
-                null
-            } ?: android.os.SystemProperties
-                .get("persist.ims.pcscf_fallback", "")
-                .takeIf { it.isNotEmpty() }
-                ?.let {
+        val pcscf =
+            preferredPcscf ?: if (pcscfs.isNotEmpty()) {
+                pcscfs[0]
+            } else {
+                // RIL did not provide P-CSCF via LinkProperties. Try standard
+                // 3GPP DNS discovery (TS 23.003 §13.2): resolve the well-known
+                // IMS domain for this PLMN.
+                val dnsFallback =
                     try {
-                        InetAddress.getByName(it)
+                        InetAddress.getByName("ims.mnc$mnc.mcc$mcc.pub.3gppnetwork.org")
                     } catch (t: Throwable) {
                         null
-                    }
-                }
+                    } ?: try {
+                        InetAddress.getByName("ims.mnc$mnc.mcc$mcc.3gppnetwork.org")
+                    } catch (t: Throwable) {
+                        null
+                    } ?: android.os.SystemProperties
+                        .get("persist.ims.pcscf_fallback", "")
+                        .takeIf { it.isNotEmpty() }
+                        ?.let {
+                            try {
+                                InetAddress.getByName(it)
+                            } catch (t: Throwable) {
+                                null
+                            }
+                        }
 
-            if (dnsFallback != null) {
-                Rlog.w(tag, "No P-CSCF from RIL, using fallback: $dnsFallback")
-                dnsFallback
-            } else {
-                Rlog.w(tag, "No P-CSCF and all fallbacks failed, waiting for onLinkPropertiesChanged")
-                return ImsNetworkEndpointResolution.WaitingForPcscf
+                if (dnsFallback != null) {
+                    Rlog.w(tag, "No P-CSCF from RIL, using fallback: $dnsFallback")
+                    dnsFallback
+                } else {
+                    Rlog.w(tag, "No P-CSCF and all fallbacks failed, waiting for onLinkPropertiesChanged")
+                    return ImsNetworkEndpointResolution.WaitingForPcscf
+                }
             }
-        }
 
         val localAddr = getImsLocalAddress(lp)
         if (localAddr == null) {
@@ -142,17 +144,19 @@ internal object ImsNetworkState {
         tag: String,
         telephonyManager: TelephonyManager,
     ): Boolean {
-        val dataRat = try {
-            telephonyManager.dataNetworkType
-        } catch (t: Throwable) {
-            TelephonyManager.NETWORK_TYPE_UNKNOWN
-        }
+        val dataRat =
+            try {
+                telephonyManager.dataNetworkType
+            } catch (t: Throwable) {
+                TelephonyManager.NETWORK_TYPE_UNKNOWN
+            }
 
-        val voiceRat = try {
-            telephonyManager.voiceNetworkType
-        } catch (t: Throwable) {
-            TelephonyManager.NETWORK_TYPE_UNKNOWN
-        }
+        val voiceRat =
+            try {
+                telephonyManager.voiceNetworkType
+            } catch (t: Throwable) {
+                TelephonyManager.NETWORK_TYPE_UNKNOWN
+            }
 
         val ready =
             dataRat == TelephonyManager.NETWORK_TYPE_LTE ||

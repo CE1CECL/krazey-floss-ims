@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.content.Context
@@ -33,13 +33,15 @@ object SipIpsecTransformBuilder {
                 IpSecAlgorithm.AUTH_HMAC_MD5 to integrityKey
             }
 
-        val builder = IpSecTransform.Builder(ctxt)
-            .setAuthentication(IpSecAlgorithm(authenticationAlgorithm, hmacKey, 96))
-            .also {
-                if (encryptionAlgorithm == "aes-cbc") {
-                    it.setEncryption(IpSecAlgorithm(IpSecAlgorithm.CRYPT_AES_CBC, cipherKey))
+        val builder =
+            IpSecTransform
+                .Builder(ctxt)
+                .setAuthentication(IpSecAlgorithm(authenticationAlgorithm, hmacKey, 96))
+                .also {
+                    if (encryptionAlgorithm == "aes-cbc") {
+                        it.setEncryption(IpSecAlgorithm(IpSecAlgorithm.CRYPT_AES_CBC, cipherKey))
+                    }
                 }
-            }
 
         return SipIpsecTransforms(
             builder = builder,

@@ -5,14 +5,12 @@ internal object SipOutgoingCallConnectionLogs {
         callId: String,
         activeCallId: String,
         reason: String,
-    ): String =
-        "Not notifying outgoing connected for stale call: callId=$callId active=$activeCallId reason=$reason"
+    ): String = "Not notifying outgoing connected for stale call: callId=$callId active=$activeCallId reason=$reason"
 
     fun rtpBeforeFinalAnswerLog(
         callId: String,
         reason: String,
-    ): String =
-        "Outgoing RTP seen before final answer; wait before connected notify callId=$callId reason=$reason"
+    ): String = "Outgoing RTP seen before final answer; wait before connected notify callId=$callId reason=$reason"
 
     fun noPostAnswerRtpYetLog(
         callId: String,
@@ -24,8 +22,7 @@ internal object SipOutgoingCallConnectionLogs {
     fun connectedAfterRemoteRtpLog(
         callId: String,
         reason: String,
-    ): String =
-        "Outgoing call connected after remote RTP: callId=$callId reason=$reason"
+    ): String = "Outgoing call connected after remote RTP: callId=$callId reason=$reason"
 
     fun postAnswerRtpTimeoutLog(
         timeoutMs: Long,
@@ -34,11 +31,9 @@ internal object SipOutgoingCallConnectionLogs {
         "No post-answer RTP within ${timeoutMs}ms for outgoing call; " +
             "terminating no-media dialog as network reject callId=$callId"
 
-    fun postAnswerRtpTimeoutReason(): String =
-        "post-answer RTP timeout"
+    fun postAnswerRtpTimeoutReason(): String = "post-answer RTP timeout"
 
-    fun failedByeForNoMediaTimeoutLog(callId: String): String =
-        "Failed to send BYE for outgoing no-media timeout callId=$callId"
+    fun failedByeForNoMediaTimeoutLog(callId: String): String = "Failed to send BYE for outgoing no-media timeout callId=$callId"
 
     fun postAnswerRtpTimeoutCancellationExtras(callId: String): Map<String, String> =
         mapOf(
@@ -48,6 +43,5 @@ internal object SipOutgoingCallConnectionLogs {
             "remoteNoMediaRelease" to "true",
         )
 
-    fun postAnswerRtpTimeoutFailedLog(callId: String): String =
-        "Outgoing post-answer RTP timeout failed callId=$callId"
+    fun postAnswerRtpTimeoutFailedLog(callId: String): String = "Outgoing post-answer RTP timeout failed callId=$callId"
 }

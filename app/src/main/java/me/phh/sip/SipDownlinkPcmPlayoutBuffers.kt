@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import java.util.concurrent.ArrayBlockingQueue
@@ -16,8 +16,9 @@ data class SipDownlinkPcmPlayoutBuffers(
             queueCapacity: Int = 8,
             minimumFrameBytes: Int = 320,
         ): SipDownlinkPcmPlayoutBuffers {
-            val frameBytes = ((audioCodec.sampleRate / 50) * audioCodec.channelCount * 2)
-                .coerceAtLeast(minimumFrameBytes)
+            val frameBytes =
+                ((audioCodec.sampleRate / 50) * audioCodec.channelCount * 2)
+                    .coerceAtLeast(minimumFrameBytes)
 
             return SipDownlinkPcmPlayoutBuffers(
                 frameBytes = frameBytes,

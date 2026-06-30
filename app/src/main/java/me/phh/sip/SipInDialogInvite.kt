@@ -2,8 +2,8 @@ package me.phh.sip
 
 import android.telephony.Rlog
 import java.io.OutputStream
-import java.net.InetAddress
 import java.net.Inet6Address
+import java.net.InetAddress
 
 internal data class InDialogInviteSdpOffer(
     val sdp: List<String>,
@@ -33,14 +33,17 @@ internal data class InDialogInviteCallUpdateState(
 )
 
 internal object SipInDialogInvite {
-
     fun parseSdpOffer(
         request: SipRequest,
         callId: String,
         cseq: String,
         logTag: String,
     ): InDialogInviteSdpOffer? {
-        val sdp = request.body.toString(Charsets.UTF_8).split("[\r\n]+".toRegex()).toList()
+        val sdp =
+            request.body
+                .toString(Charsets.UTF_8)
+                .split("[\r\n]+".toRegex())
+                .toList()
         Rlog.d(logTag, "Handling in-dialog INVITE: callId=$callId cseq=$cseq sdp=$sdp")
 
         fun sdpElement(command: String): String? {
@@ -68,26 +71,24 @@ internal object SipInDialogInvite {
         )
     }
 
-
-
-
-
     fun selectMedia(
         attributes: List<String>,
         selectedAudioCodec: NegotiatedAudioCodec,
         logTag: String,
     ): InDialogInviteMediaSelection? {
-        val (amrTrack, amrTrackDesc) = trackMatching(
-            attributes = attributes,
-            codec = SipAudioCodecNegotiator.speechCodecRtpmapName(selectedAudioCodec),
-            notAdditional = "octet-align=1",
-            logTag = logTag,
-        ) ?: return null
-        val (dtmfTrack, dtmfTrackDesc) = trackMatching(
-            attributes = attributes,
-            codec = SipAudioCodecNegotiator.telephoneEventRtpmapName(selectedAudioCodec),
-            logTag = logTag,
-        ) ?: return null
+        val (amrTrack, amrTrackDesc) =
+            trackMatching(
+                attributes = attributes,
+                codec = SipAudioCodecNegotiator.speechCodecRtpmapName(selectedAudioCodec),
+                notAdditional = "octet-align=1",
+                logTag = logTag,
+            ) ?: return null
+        val (dtmfTrack, dtmfTrackDesc) =
+            trackMatching(
+                attributes = attributes,
+                codec = SipAudioCodecNegotiator.telephoneEventRtpmapName(selectedAudioCodec),
+                logTag = logTag,
+            ) ?: return null
         val amrFmtpAnswer =
             trackRequirements(attributes, amrTrack)
                 ?: SipAudioCodecNegotiator.defaultSpeechFmtpAnswer(amrTrack, selectedAudioCodec)
@@ -109,22 +110,24 @@ internal object SipInDialogInvite {
         logTag: String,
     ): Pair<Int, String>? {
         val maps = attributes.filter { it.startsWith("rtpmap") && it.contains(codec) }
-        val matches = maps.map { m ->
-            val track = m.split("[: ]+".toRegex())[1].toInt()
-            Pair(track, m)
-        }
-        val sorted = if (matches.size > 1) {
-            matches.sortedBy { m ->
-                val fmtp = attributes.firstOrNull { it.startsWith("fmtp:${m.first}") }.orEmpty()
-                when {
-                    codec.startsWith("AMR") && fmtp.isEmpty() -> 100
-                    notAdditional.isNotEmpty() && fmtp.contains(notAdditional) -> 90
-                    else -> 10
-                }
+        val matches =
+            maps.map { m ->
+                val track = m.split("[: ]+".toRegex())[1].toInt()
+                Pair(track, m)
             }
-        } else {
-            matches
-        }
+        val sorted =
+            if (matches.size > 1) {
+                matches.sortedBy { m ->
+                    val fmtp = attributes.firstOrNull { it.startsWith("fmtp:${m.first}") }.orEmpty()
+                    when {
+                        codec.startsWith("AMR") && fmtp.isEmpty() -> 100
+                        notAdditional.isNotEmpty() && fmtp.contains(notAdditional) -> 90
+                        else -> 10
+                    }
+                }
+            } else {
+                matches
+            }
         Rlog.d(logTag, "In-dialog INVITE matching $codec, got $sorted")
         return sorted.firstOrNull()
     }
@@ -132,9 +135,7 @@ internal object SipInDialogInvite {
     fun trackRequirements(
         attributes: List<String>,
         track: Int,
-    ): String? =
-        attributes.firstOrNull { it.startsWith("fmtp:$track") }
-
+    ): String? = attributes.firstOrNull { it.startsWith("fmtp:$track") }
 
     fun callUpdateState(
         request: SipRequest,
@@ -156,11 +157,12 @@ internal object SipInDialogInvite {
             dtmfTrackDesc = dtmfTrackDesc,
             rtpRemoteAddr = rtpRemoteAddr,
             rtpRemotePort = rtpRemotePort,
-            remoteContact = remoteContactFromRequest(
-                request = request,
-                fallbackRemoteContact = fallbackRemoteContact,
-                extractDestinationFromContact = extractDestinationFromContact,
-            ),
+            remoteContact =
+                remoteContactFromRequest(
+                    request = request,
+                    fallbackRemoteContact = fallbackRemoteContact,
+                    extractDestinationFromContact = extractDestinationFromContact,
+                ),
         )
 
     fun remoteContactFromRequest(
@@ -168,7 +170,8 @@ internal object SipInDialogInvite {
         fallbackRemoteContact: String,
         extractDestinationFromContact: (String) -> String,
     ): String =
-        request.headers["contact"]?.getOrNull(0)
+        request.headers["contact"]
+            ?.getOrNull(0)
             ?.let { extractDestinationFromContact(it) }
             ?: fallbackRemoteContact
 
@@ -191,53 +194,59 @@ internal object SipInDialogInvite {
         val remoteMaxptime = attributes.firstOrNull { it.startsWith("maxptime:") } ?: "maxptime:20"
         val allTracks = listOf(amrTrack, dtmfTrack)
         val sdpBandwidthAs = SipAudioCodecNegotiator.sdpBandwidthAsKbps(selectedAudioCodec)
-        val remoteBandwidthLines = sdp
-            .filter { it.startsWith("b=", ignoreCase = true) }
-            .map { it.substring(2).trim() }
-            .filter { it.startsWith("AS:", ignoreCase = true) }
-        val answerBandwidthLines = if (remoteBandwidthLines.isNotEmpty()) {
-            remoteBandwidthLines
-        } else {
-            listOf("AS:$sdpBandwidthAs")
-        }
-        val remoteDirection = attributes.firstOrNull {
-            it == "sendrecv" || it == "sendonly" || it == "recvonly" || it == "inactive"
-        }
-        val answerDirection = when (remoteDirection) {
-            "sendonly" -> "recvonly"
-            "recvonly" -> "sendonly"
-            "inactive" -> "inactive"
-            "sendrecv" -> "sendrecv"
-            else -> null
-        }
+        val remoteBandwidthLines =
+            sdp
+                .filter { it.startsWith("b=", ignoreCase = true) }
+                .map { it.substring(2).trim() }
+                .filter { it.startsWith("AS:", ignoreCase = true) }
+        val answerBandwidthLines =
+            if (remoteBandwidthLines.isNotEmpty()) {
+                remoteBandwidthLines
+            } else {
+                listOf("AS:$sdpBandwidthAs")
+            }
+        val remoteDirection =
+            attributes.firstOrNull {
+                it == "sendrecv" || it == "sendonly" || it == "recvonly" || it == "inactive"
+            }
+        val answerDirection =
+            when (remoteDirection) {
+                "sendonly" -> "recvonly"
+                "recvonly" -> "sendonly"
+                "inactive" -> "inactive"
+                "sendrecv" -> "sendrecv"
+                else -> null
+            }
         Rlog.d(
             logTag,
             "Conservative in-dialog INVITE SDP answer: " +
                 "bandwidth=$answerBandwidthLines ptime=$remotePtime maxptime=$remoteMaxptime " +
-                "remoteDirection=$remoteDirection answerDirection=$answerDirection"
+                "remoteDirection=$remoteDirection answerDirection=$answerDirection",
         )
         Rlog.d(
             logTag,
             "In-dialog INVITE SDP answer version: callId=$callId version=$localSdpSessionVersion",
         )
         val ipType = if (localAddr is Inet6Address) "IP6" else "IP4"
-        val answerSdpLines = mutableListOf(
-            "v=0",
-            "o=- 1 $localSdpSessionVersion IN $ipType ${localAddr.hostAddress}",
-            "s=-",
-            "c=IN $ipType ${localAddr.hostAddress}",
-            "t=0 0",
-            "m=audio $localRtpPort RTP/AVP ${allTracks.joinToString(" ")}",
-        )
+        val answerSdpLines =
+            mutableListOf(
+                "v=0",
+                "o=- 1 $localSdpSessionVersion IN $ipType ${localAddr.hostAddress}",
+                "s=-",
+                "c=IN $ipType ${localAddr.hostAddress}",
+                "t=0 0",
+                "m=audio $localRtpPort RTP/AVP ${allTracks.joinToString(" ")}",
+            )
         answerBandwidthLines.forEach { answerSdpLines += "b=$it" }
-        answerSdpLines += listOf(
-            "a=$amrTrackDesc",
-            "a=$remotePtime",
-            "a=$remoteMaxptime",
-            "a=$dtmfTrackDesc",
-            "a=$amrFmtpAnswer",
-            "a=fmtp:$dtmfTrack 0-15",
-        )
+        answerSdpLines +=
+            listOf(
+                "a=$amrTrackDesc",
+                "a=$remotePtime",
+                "a=$remoteMaxptime",
+                "a=$dtmfTrackDesc",
+                "a=$amrFmtpAnswer",
+                "a=fmtp:$dtmfTrack 0-15",
+            )
         answerDirection?.let { answerSdpLines += "a=$it" }
         return answerSdpLines.joinToString("\r\n").toByteArray(Charsets.US_ASCII)
     }
@@ -246,12 +255,16 @@ internal object SipInDialogInvite {
         request: SipRequest,
         logTag: String,
     ): Map<String, List<String>> {
-        val requestSessionExpires = request.headers["session-expires"]?.getOrNull(0)
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-        val requestMinSe = request.headers["min-se"]?.getOrNull(0)
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
+        val requestSessionExpires =
+            request.headers["session-expires"]
+                ?.getOrNull(0)
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+        val requestMinSe =
+            request.headers["min-se"]
+                ?.getOrNull(0)
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
         val inDialogSessionTimerHeaders = mutableMapOf<String, List<String>>()
         requestSessionExpires?.let { inDialogSessionTimerHeaders["session-expires"] = listOf(it) }
         requestMinSe?.let { inDialogSessionTimerHeaders["min-se"] = listOf(it) }
@@ -262,7 +275,6 @@ internal object SipInDialogInvite {
         )
         return inDialogSessionTimerHeaders
     }
-
 
     fun writeOkResponse(
         responseWriter: OutputStream,
@@ -278,23 +290,24 @@ internal object SipInDialogInvite {
         inDialogSessionTimerHeaders: Map<String, List<String>>,
         logTag: String,
     ): SipResponse {
-        val responseHeaders = SipDialogHeaderBuilder.responseHeadersFromRequest(
-            request,
-            extra = """
+        val responseHeaders =
+            SipDialogHeaderBuilder.responseHeadersFromRequest(
+                request,
+                extra =
+                    """
                 Contact: $contact
                 Supported: timer
                 Content-Type: application/sdp
-            """.toSipHeadersMap() + inDialogSessionTimerHeaders
-        )
-        val response = SipResponse(
-            statusCode = 200,
-            statusString = "OK",
-            headersParam = responseHeaders,
-            body = answerSdp,
-        )
+            """.toSipHeadersMap() + inDialogSessionTimerHeaders,
+            )
+        val response =
+            SipResponse(
+                statusCode = 200,
+                statusString = "OK",
+                headersParam = responseHeaders,
+                body = answerSdp,
+            )
         Rlog.d(logTag, "Replying to in-dialog INVITE without creating a new incoming call: $response")
         return response
     }
-
-
 }

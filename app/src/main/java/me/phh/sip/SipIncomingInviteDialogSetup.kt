@@ -22,20 +22,10 @@ internal data class IncomingDialogInstallAbortDecision(
 )
 
 internal object SipIncomingInviteDialogSetup {
-
-
-
-
-
-
-
-
-
     fun incomingCallNotificationExtras(
         incomingCallId: String,
         selectedAudioCodec: NegotiatedAudioCodec,
-    ): Map<String, String> =
-        mapOf("call-id" to incomingCallId) + SipAudioCodecNegotiator.audioCodecExtras(selectedAudioCodec)
+    ): Map<String, String> = mapOf("call-id" to incomingCallId) + SipAudioCodecNegotiator.audioCodecExtras(selectedAudioCodec)
 
     fun installAbortDecision(
         incomingCallId: String,
@@ -48,8 +38,9 @@ internal object SipIncomingInviteDialogSetup {
         }
 
         return IncomingDialogInstallAbortDecision(
-            message = "Aborting incoming ringing because Call-ID was terminated during setup: " +
-                "callId=$incomingCallId installed=$installedIncomingCallId",
+            message =
+                "Aborting incoming ringing because Call-ID was terminated during setup: " +
+                    "callId=$incomingCallId installed=$installedIncomingCallId",
             clearCurrentCall = installedIncomingCallId == incomingCallId,
         )
     }
@@ -66,40 +57,43 @@ internal object SipIncomingInviteDialogSetup {
         localAddr: InetAddress,
         logTag: String,
     ): IncomingInviteDialogSetupState {
-        val incomingSdpAnswer = SipIncomingInviteSdpAnswerBuilder.build(
-            owner = incomingOffer.owner,
-            rtpSocket = rtpSocket,
-            sdpBandwidthAs = incomingOffer.sdpBandwidthAs,
-            allTracks = incomingOffer.allTracks,
-            amrTrackDesc = incomingOffer.amrTrackDesc,
-            remoteMaxptime = incomingOffer.remoteMaxptime,
-            dtmfTrackDesc = incomingOffer.dtmfTrackDesc,
-            amrFmtpAnswer = incomingOffer.amrFmtpAnswer,
-            dtmfTrack = incomingOffer.dtmfTrack,
-            callerSupportsPrecondition = incomingOffer.callerSupportsPrecondition,
-            sendReliable183 = incomingOffer.sendReliable183,
-            incomingCallId = incomingCallId,
-            reliableSequence = reliableSequence,
-            localAddr = localAddr,
-            logTag = logTag,
-        )
+        val incomingSdpAnswer =
+            SipIncomingInviteSdpAnswerBuilder.build(
+                owner = incomingOffer.owner,
+                rtpSocket = rtpSocket,
+                sdpBandwidthAs = incomingOffer.sdpBandwidthAs,
+                allTracks = incomingOffer.allTracks,
+                amrTrackDesc = incomingOffer.amrTrackDesc,
+                remoteMaxptime = incomingOffer.remoteMaxptime,
+                dtmfTrackDesc = incomingOffer.dtmfTrackDesc,
+                amrFmtpAnswer = incomingOffer.amrFmtpAnswer,
+                dtmfTrack = incomingOffer.dtmfTrack,
+                callerSupportsPrecondition = incomingOffer.callerSupportsPrecondition,
+                sendReliable183 = incomingOffer.sendReliable183,
+                incomingCallId = incomingCallId,
+                reliableSequence = reliableSequence,
+                localAddr = localAddr,
+                logTag = logTag,
+            )
         val mySeqCounter = incomingSdpAnswer.reliableSequence
         val mySdp = incomingSdpAnswer.body
 
-        val toWithTag = SipIncomingInviteToHeaderTagger.tag(
-            request = request,
-            localToTag = localToTag,
-            logTag = logTag,
-        )
+        val toWithTag =
+            SipIncomingInviteToHeaderTagger.tag(
+                request = request,
+                localToTag = localToTag,
+                logTag = logTag,
+            )
 
-        val myHeaders = SipIncomingInviteProvisionalHeaders.build(
-            request = request,
-            commonHeaders = commonHeaders,
-            dialogContact = dialogContact,
-            callerSupportsPrecondition = incomingOffer.callerSupportsPrecondition,
-            reliableSequence = mySeqCounter,
-            toWithTag = toWithTag,
-        )
+        val myHeaders =
+            SipIncomingInviteProvisionalHeaders.build(
+                request = request,
+                commonHeaders = commonHeaders,
+                dialogContact = dialogContact,
+                callerSupportsPrecondition = incomingOffer.callerSupportsPrecondition,
+                reliableSequence = mySeqCounter,
+                toWithTag = toWithTag,
+            )
 
         return IncomingInviteDialogSetupState(
             rtpSocket = rtpSocket,
@@ -117,13 +111,14 @@ internal object SipIncomingInviteDialogSetup {
         bindSocket: (DatagramSocket) -> Unit,
         reconnectIms: (String) -> Unit,
     ): DatagramSocket? {
-        val rtpSocket = try {
-            DatagramSocket(0, localAddr)
-        } catch (t: Throwable) {
-            Rlog.e(logTag, "Failed to bind incoming RTP socket to $localAddr; IMS address is likely stale", t)
-            reconnectIms("incoming RTP bind failed for localAddr=$localAddr")
-            return null
-        }
+        val rtpSocket =
+            try {
+                DatagramSocket(0, localAddr)
+            } catch (t: Throwable) {
+                Rlog.e(logTag, "Failed to bind incoming RTP socket to $localAddr; IMS address is likely stale", t)
+                reconnectIms("incoming RTP bind failed for localAddr=$localAddr")
+                return null
+            }
         try {
             bindSocket(rtpSocket)
             // Do not connect incoming RTP sockets. A connected DatagramSocket filters
@@ -136,12 +131,15 @@ internal object SipIncomingInviteDialogSetup {
             // unrestricted to the actual media source on the IMS network.
             Rlog.d(
                 logTag,
-                "Incoming RTP socket left unconnected; txTarget=${rtpRemoteAddr}:${rtpRemotePort} " +
+                "Incoming RTP socket left unconnected; txTarget=$rtpRemoteAddr:$rtpRemotePort " +
                     "local=${rtpSocket.localAddress}:${rtpSocket.localPort}",
             )
         } catch (t: Throwable) {
             Rlog.e(logTag, "Failed to bind incoming RTP socket", t)
-            try { rtpSocket.close() } catch (_: Throwable) {}
+            try {
+                rtpSocket.close()
+            } catch (_: Throwable) {
+            }
             reconnectIms("incoming RTP bind failed")
             return null
         }
@@ -149,7 +147,7 @@ internal object SipIncomingInviteDialogSetup {
             logTag,
             "RTP socket created: local=${rtpSocket.localAddress}:${rtpSocket.localPort}, " +
                 "connected=${rtpSocket.isConnected}, socketRemote=${rtpSocket.inetAddress}:${rtpSocket.port}, " +
-                "txTarget=${rtpRemoteAddr}:${rtpRemotePort}",
+                "txTarget=$rtpRemoteAddr:$rtpRemotePort",
         )
         return rtpSocket
     }
@@ -202,7 +200,7 @@ internal object SipIncomingInviteDialogSetup {
                 logTag,
                 "Rejecting second incoming INVITE while busy: " +
                     "callId=$incomingCallId cseq=$incomingCseq " +
-                    "activeCallId=$activeCallId activeDirection=$activeDirection"
+                    "activeCallId=$activeCallId activeDirection=$activeDirection",
             )
             return IncomingInviteRejectDecision(
                 statusCode = 486,
@@ -216,7 +214,7 @@ internal object SipIncomingInviteDialogSetup {
                 logTag,
                 "Rejecting incoming INVITE while outgoing INVITE is pending: " +
                     "callId=$incomingCallId cseq=$incomingCseq " +
-                    "pendingOutgoingCallId=$pendingOutgoingCallId"
+                    "pendingOutgoingCallId=$pendingOutgoingCallId",
             )
             return IncomingInviteRejectDecision(
                 statusCode = 486,
@@ -231,11 +229,12 @@ internal object SipIncomingInviteDialogSetup {
         SipResponse(
             statusCode = 100,
             statusString = "Trying",
-            headersParam = SipDialogHeaderBuilder.responseHeadersFromRequest(
-                request,
-                extra = "Content-Length: 0".toSipHeadersMap(),
-            ),
-            autofill = false
+            headersParam =
+                SipDialogHeaderBuilder.responseHeadersFromRequest(
+                    request,
+                    extra = "Content-Length: 0".toSipHeadersMap(),
+                ),
+            autofill = false,
         )
 
     fun reliableProvisionalResponse(
@@ -246,14 +245,13 @@ internal object SipIncomingInviteDialogSetup {
             statusCode = 183,
             statusString = "Session Progress",
             headersParam = headers,
-            body = sdp
+            body = sdp,
         )
 
-    fun plainRingingResponse(
-        headers: Map<String, List<String>>,
-    ): SipResponse {
-        val ringingHeaders = headers - "rseq" - "content-type" - "require" - "p-access-network-info" +
-            """
+    fun plainRingingResponse(headers: Map<String, List<String>>): SipResponse {
+        val ringingHeaders =
+            headers - "rseq" - "content-type" - "require" - "p-access-network-info" +
+                """
 Supported: replaces, timer
 Content-Length: 0
 
@@ -262,7 +260,7 @@ Content-Length: 0
             statusCode = 180,
             statusString = "Ringing",
             headersParam = ringingHeaders,
-            autofill = false
+            autofill = false,
         )
     }
 
@@ -275,10 +273,13 @@ Content-Length: 0
         if (!wasTerminated) return false
 
         Rlog.w(logTag, "Aborting incoming call setup because Call-ID was terminated before dialog install: callId=$incomingCallId")
-        try { rtpSocket.close() } catch (t: Throwable) { Rlog.d(logTag, "Closing aborted incoming RTP socket failed", t) }
+        try {
+            rtpSocket.close()
+        } catch (t: Throwable) {
+            Rlog.d(logTag, "Closing aborted incoming RTP socket failed", t)
+        }
         return true
     }
-
 
     fun localDialogEndpoint(
         localHost: String?,
@@ -298,20 +299,22 @@ Content-Length: 0
         fallbackTransport: String,
         imei: String,
     ): String {
-        val incomingDialogTransport = request.headers["via"]
-            ?.firstOrNull()
-            ?.substringAfter("SIP/2.0/", "")
-            ?.substringBefore(" ")
-            ?.trim()
-            ?.lowercase()
-            ?.takeIf { it == "udp" || it == "tcp" }
-            ?: fallbackTransport
-        val dialogContact = SipContactHeaders.mmtelContact(
-            userPart = owner,
-            localEndpoint = localEndpoint,
-            transport = incomingDialogTransport,
-            sipInstance = SipContactHeaders.sipInstanceFromImei(imei),
-        )
+        val incomingDialogTransport =
+            request.headers["via"]
+                ?.firstOrNull()
+                ?.substringAfter("SIP/2.0/", "")
+                ?.substringBefore(" ")
+                ?.trim()
+                ?.lowercase()
+                ?.takeIf { it == "udp" || it == "tcp" }
+                ?: fallbackTransport
+        val dialogContact =
+            SipContactHeaders.mmtelContact(
+                userPart = owner,
+                localEndpoint = localEndpoint,
+                transport = incomingDialogTransport,
+                sipInstance = SipContactHeaders.sipInstanceFromImei(imei),
+            )
         Rlog.d(
             logTag,
             "Incoming dialog Contact: $dialogContact " +

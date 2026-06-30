@@ -13,7 +13,8 @@ internal object SipOutgoingInviteResponseGuards {
         val responseCallId = response.headers["call-id"]?.getOrNull(0).orEmpty()
         val responseCseqForLog = response.headers["cseq"]?.getOrNull(0)
         if (responseCallId != expectedCallId ||
-            (activeCallIdForResponse != responseCallId && pendingCallIdForResponse != responseCallId)) {
+            (activeCallIdForResponse != responseCallId && pendingCallIdForResponse != responseCallId)
+        ) {
             Rlog.w(
                 logTag,
                 "Ignoring stale outgoing response: " +
@@ -35,12 +36,10 @@ internal data class OutgoingAckOrByeResponseResult(
 )
 
 internal object SipOutgoingInviteAckByeResponses {
-
     fun fallbackByeResponseCleanupReason(
         cseq: String,
         statusCode: Int,
-    ): String =
-        "outgoing BYE response $cseq $statusCode"
+    ): String = "outgoing BYE response $cseq $statusCode"
 
     fun handle(
         logTag: String,
@@ -147,7 +146,6 @@ internal data class OutgoingProgressNotification(
 )
 
 internal object SipOutgoingInviteProgressResponses {
-
     fun staleOutgoingDialogFailureLog(
         response: SipResponse,
         failedCseq: String,
@@ -168,8 +166,7 @@ internal object SipOutgoingInviteProgressResponses {
             "status=${response.statusCode} ${response.statusString} " +
             "cseq=$failedCseq callId=$failedCallId"
 
-    fun outgoingDialogFailureCleanupReason(): String =
-        "outgoing dialog failure"
+    fun outgoingDialogFailureCleanupReason(): String = "outgoing dialog failure"
 
     fun earlyOutgoingInDialogRequestFailedLog(failedCallId: String): String =
         "Early outgoing in-dialog request failed; cancelling pending INVITE callId=$failedCallId"
@@ -177,14 +174,12 @@ internal object SipOutgoingInviteProgressResponses {
     fun earlyDialogRequestFailedCancelReason(
         failedCseq: String,
         statusCode: Int,
-    ): String =
-        "early dialog request failed: $failedCseq $statusCode"
+    ): String = "early dialog request failed: $failedCseq $statusCode"
 
     fun outgoingDialogFailurePendingCleanupReason(
         failedCseq: String,
         statusCode: Int,
-    ): String =
-        "outgoing dialog failure $failedCseq $statusCode"
+    ): String = "outgoing dialog failure $failedCseq $statusCode"
 
     fun outgoingDialogFailureCancellationExtras(
         response: SipResponse,
@@ -204,8 +199,10 @@ internal object SipOutgoingInviteProgressResponses {
         if (response.statusCode !in 180..199) return null
 
         val progressCseq = response.headers["cseq"]?.getOrNull(0).orEmpty()
-        val progressHasSdp = response.headers["content-type"]?.getOrNull(0)
-            ?.equals("application/sdp", ignoreCase = true) == true
+        val progressHasSdp =
+            response.headers["content-type"]
+                ?.getOrNull(0)
+                ?.equals("application/sdp", ignoreCase = true) == true
 
         if (!progressCseq.contains("INVITE", ignoreCase = true) || progressHasSdp) return null
 
@@ -215,13 +212,14 @@ internal object SipOutgoingInviteProgressResponses {
                 "status=${response.statusCode} ${response.statusString} cseq=$progressCseq",
         )
         return OutgoingProgressNotification(
-            extras = mapOf(
-                "call-id" to response.callIdOrEmpty(),
-                "statusCode" to response.statusCode.toString(),
-                "statusString" to response.statusString,
-                "cseq" to progressCseq,
-                "local-ringback" to "true",
-            ),
+            extras =
+                mapOf(
+                    "call-id" to response.callIdOrEmpty(),
+                    "statusCode" to response.statusCode.toString(),
+                    "statusString" to response.statusString,
+                    "cseq" to progressCseq,
+                    "local-ringback" to "true",
+                ),
         )
     }
 }
@@ -232,7 +230,6 @@ internal data class OutgoingReliableProvisionalDecision(
 )
 
 internal object SipOutgoingInviteReliableProvisionals {
-
     fun syncingPrackCseqAllocatorLog(
         allocatorNextCseq: Int,
         currentCallNextCseq: Int,

@@ -1,15 +1,24 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.telephony.Rlog
 import android.telephony.TelephonyManager
 import android.util.Base64
 
-data class SipAkaResult(val res: ByteArray, val ck: ByteArray, val ik: ByteArray)
+data class SipAkaResult(
+    val res: ByteArray,
+    val ck: ByteArray,
+    val ik: ByteArray,
+)
 
 sealed class SipAkaChallengeResult {
-    data class Success(val akaResult: SipAkaResult) : SipAkaChallengeResult()
-    data class SynchronizationFailure(val auts: ByteArray) : SipAkaChallengeResult()
+    data class Success(
+        val akaResult: SipAkaResult,
+    ) : SipAkaChallengeResult()
+
+    data class SynchronizationFailure(
+        val auts: ByteArray,
+    ) : SipAkaChallengeResult()
 }
 
 private const val TAG = "PHH SipChallenge"
@@ -20,15 +29,20 @@ private fun quoteDigestOpaque(opaque: String?): String {
     return ",opaque=\"$escaped\""
 }
 
-fun sipAkaChallenge(tm: TelephonyManager, nonceB64: String): SipAkaResult {
-    return when (val result = sipAkaChallengeForRegistration(tm, nonceB64)) {
-        is SipAkaChallengeResult.Success -> result.akaResult
+fun sipAkaChallenge(
+    tm: TelephonyManager,
+    nonceB64: String,
+): SipAkaResult =
+    when (val result = sipAkaChallengeForRegistration(tm, nonceB64)) {
+        is SipAkaChallengeResult.Success -> {
+            result.akaResult
+        }
+
         is SipAkaChallengeResult.SynchronizationFailure -> {
             val autsHex = result.auts.joinToString("") { "%02x".format(it.toInt() and 0xff) }
             throw Exception("AKA Challenge from SIP returned synchronization failure AUTS=$autsHex")
         }
     }
-}
 
 fun sipAkaChallengeForRegistration(
     tm: TelephonyManager,
@@ -43,11 +57,12 @@ fun sipAkaChallengeForRegistration(
     val challengeArray = challengeBytes.toByteArray()
     val challenge = Base64.encodeToString(challengeArray, Base64.NO_WRAP)
     Rlog.d(TAG, "Challenge B64 is $challenge")
-    val responseB64 = tm.getIccAuthentication(
-        TelephonyManager.APPTYPE_USIM,
-        TelephonyManager.AUTHTYPE_EAP_AKA,
-        challenge
-    ) ?: throw Exception("AKA Challenge from SIP returned null response")
+    val responseB64 =
+        tm.getIccAuthentication(
+            TelephonyManager.APPTYPE_USIM,
+            TelephonyManager.AUTHTYPE_EAP_AKA,
+            challenge,
+        ) ?: throw Exception("AKA Challenge from SIP returned null response")
     val response = Base64.decode(responseB64, Base64.DEFAULT)
 
     if (response.isEmpty()) {
@@ -60,7 +75,7 @@ fun sipAkaChallengeForRegistration(
         Rlog.w(
             TAG,
             "AKA challenge from SIP failed tag=0x${responseTag.toString(16)} " +
-                    "len=${response.size} response=$responseHex",
+                "len=${response.size} response=$responseHex",
         )
 
         if (responseTag == 0xdc) {
@@ -71,7 +86,7 @@ fun sipAkaChallengeForRegistration(
             if (response.size < 2 + autsLen) {
                 throw Exception(
                     "AKA synchronization failure response truncated " +
-                            "autsLen=$autsLen len=${response.size}",
+                        "autsLen=$autsLen len=${response.size}",
                 )
             }
             val auts = response.copyOfRange(2, 2 + autsLen)
@@ -81,7 +96,7 @@ fun sipAkaChallengeForRegistration(
             Rlog.w(
                 TAG,
                 "AKA synchronization failure/AUTS returned by USIM " +
-                        "autsLen=$autsLen auts=$autsHex trailing=$trailingHex",
+                    "autsLen=$autsLen auts=$autsHex trailing=$trailingHex",
             )
             return SipAkaChallengeResult.SynchronizationFailure(auts)
         }
@@ -104,7 +119,7 @@ fun sipAkaChallengeForRegistration(
 
     Rlog.d(TAG, "Got res $res ck $ck ik $ik")
     return SipAkaChallengeResult.Success(
-        SipAkaResult(res = res.toByteArray(), ck = ck.toByteArray(), ik = ik.toByteArray())
+        SipAkaResult(res = res.toByteArray(), ck = ck.toByteArray(), ik = ik.toByteArray()),
     )
 }
 
@@ -114,7 +129,7 @@ data class SipAkaDigestSess(
     val uri: String,
     val nonceB64: String,
     val opaque: String?,
-    private val akaResult: SipAkaResult
+    private val akaResult: SipAkaResult,
 ) {
     var nonceCount: String = "0"
     var cnonce: String = ""
@@ -170,11 +185,10 @@ data class SipAkaSynchronizationDigestSess(
 
     override fun toString(): String =
         "Digest username=\"$user\",realm=\"$realm\",nonce=\"$nonceB64\",uri=\"$uri\"," +
-                "response=\"$digest\",algorithm=AKAv1-MD5,cnonce=\"$cnonce\",qop=auth,nc=$nonceCount" +
-                quoteDigestOpaque(opaque) +
-                ",auts=\"$autsB64\""
+            "response=\"$digest\",algorithm=AKAv1-MD5,cnonce=\"$cnonce\",qop=auth,nc=$nonceCount" +
+            quoteDigestOpaque(opaque) +
+            ",auts=\"$autsB64\""
 }
-
 
 data class SipAkaDigest(
     val user: String,
@@ -182,7 +196,7 @@ data class SipAkaDigest(
     val uri: String,
     val nonceB64: String,
     val opaque: String?,
-    private val akaResult: SipAkaResult
+    private val akaResult: SipAkaResult,
 ) {
     private val H1 = ("$user:$realm:".toByteArray() + akaResult.res).toMD5()
     private val H2 = "REGISTER:$uri".toMD5()
@@ -230,8 +244,7 @@ data class SipAkaSynchronizationDigest(
 
     override fun toString(): String =
         "Digest username=\"$user\",realm=\"$realm\",nonce=\"$nonceB64\",uri=\"$uri\"," +
-                "response=\"$digest\",algorithm=AKAv1-MD5" +
-                quoteDigestOpaque(opaque) +
-                ",auts=\"$autsB64\""
+            "response=\"$digest\",algorithm=AKAv1-MD5" +
+            quoteDigestOpaque(opaque) +
+            ",auts=\"$autsB64\""
 }
-

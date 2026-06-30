@@ -13,18 +13,14 @@ internal object SipIncomingInviteRequestFlowLogs {
             "finalResponseSent=$finalResponseSent " +
             "awaitingAck=$awaitingAck callStarted=$callStarted"
 
-    fun explicitTryingLog(response: SipResponse): String =
-        "Sending explicit 100 Trying on incoming request flow: $response"
-    fun abortedIncomingRtpSocketCloseFailedLog(): String =
-        "Closing aborted incoming RTP socket failed"
+    fun explicitTryingLog(response: SipResponse): String = "Sending explicit 100 Trying on incoming request flow: $response"
 
-    fun deferringIncomingMediaUntilFinalAckLog(): String =
-        "Deferring incoming media threads until final ACK"
+    fun abortedIncomingRtpSocketCloseFailedLog(): String = "Closing aborted incoming RTP socket failed"
 
-    fun reliableIncoming183Log(response: SipResponse): String =
-        "Sending reliable incoming 183 for precondition offer: $response"
+    fun deferringIncomingMediaUntilFinalAckLog(): String = "Deferring incoming media threads until final ACK"
+
+    fun reliableIncoming183Log(response: SipResponse): String = "Sending reliable incoming 183 for precondition offer: $response"
 
     fun plainIncoming180Log(response: SipResponse): String =
         "Sending plain 180 Ringing on incoming request flow, no reliable provisional response: $response"
-
 }

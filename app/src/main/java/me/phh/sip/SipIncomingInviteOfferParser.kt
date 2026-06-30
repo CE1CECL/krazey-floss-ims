@@ -15,10 +15,15 @@ internal object SipIncomingInviteSdpParser {
         request: SipRequest,
         logTag: String,
     ): IncomingInviteSdpBasics {
-        val sdp = request.body.toString(Charsets.UTF_8).split("[\r\n]+".toRegex()).toList()
+        val sdp =
+            request.body
+                .toString(Charsets.UTF_8)
+                .split("[\r\n]+".toRegex())
+                .toList()
         Rlog.d(logTag, "Split SDP into $sdp")
+
         fun sdpElement(command: String): String? {
-            val v = sdp.firstOrNull { it.startsWith("$command=")} ?: return null
+            val v = sdp.firstOrNull { it.startsWith("$command=") } ?: return null
             return v.substring(2)
         }
         val sdpConnectionData = sdpElement("c")
@@ -30,15 +35,15 @@ internal object SipIncomingInviteSdpParser {
 
         Rlog.d(logTag, "Got sdpTiming $sdpTiming")
 
-        if (sdpTiming != "0 0")
+        if (sdpTiming != "0 0") {
             Rlog.d(logTag, "Uh-oh, unknown timing mode")
+        }
 
-
-        val rtpRemote = sdpConnectionData!!.split(" ")[2] //c=IN IP6 xxx
+        val rtpRemote = sdpConnectionData!!.split(" ")[2] // c=IN IP6 xxx
         val rtpRemoteAddr = InetAddress.getByName(rtpRemote)
-        val rtpRemotePort = sdpMedia!!.split(" ")[1] //m=audio 30798 RTP/AVP 96 97 98 8 18 101 100 99
+        val rtpRemotePort = sdpMedia!!.split(" ")[1] // m=audio 30798 RTP/AVP 96 97 98 8 18 101 100 99
 
-        val attributes = sdp.filter { it.startsWith("a=") }.map { it.substring(2)}
+        val attributes = sdp.filter { it.startsWith("a=") }.map { it.substring(2) }
         SipAudioCodecSdpLogger.logRemoteAudioCodecCandidates(
             tag = logTag,
             context = "remote SDP ${request.method} callId=${request.callIdOrEmpty()}",
@@ -70,15 +75,18 @@ internal object SipIncomingInviteCapabilityParser {
         val peerSupportsEarlyMedia = request.headers["p-early-media"]?.isNotEmpty() == true
         val callerCapabilityHeaders =
             request.headers["supported"].orEmpty() + request.headers["require"].orEmpty()
-        val callerSupports100Rel = callerCapabilityHeaders
-            .any { it.contains("100rel", ignoreCase = true) }
-        val callerSupportsPreconditionHeader = callerCapabilityHeaders
-            .any { it.contains("precondition", ignoreCase = true) }
-        val incomingOfferHasPrecondition = attributes.any { attr ->
-            attr.startsWith("curr:qos", ignoreCase = true) ||
-                attr.startsWith("des:qos", ignoreCase = true) ||
-                attr.startsWith("conf:qos", ignoreCase = true)
-        }
+        val callerSupports100Rel =
+            callerCapabilityHeaders
+                .any { it.contains("100rel", ignoreCase = true) }
+        val callerSupportsPreconditionHeader =
+            callerCapabilityHeaders
+                .any { it.contains("precondition", ignoreCase = true) }
+        val incomingOfferHasPrecondition =
+            attributes.any { attr ->
+                attr.startsWith("curr:qos", ignoreCase = true) ||
+                    attr.startsWith("des:qos", ignoreCase = true) ||
+                    attr.startsWith("conf:qos", ignoreCase = true)
+            }
         val incomingOfferIsInactive = attributes.any { it.equals("inactive", ignoreCase = true) }
         val callerSupportsPrecondition = callerSupportsPreconditionHeader || incomingOfferHasPrecondition
         // Some carriers send incoming VoLTE as inactive media with mandatory QoS
@@ -131,64 +139,71 @@ internal object SipIncomingInviteMediaSelector {
         amrWbMediaCodecAvailable: Boolean,
         logTag: String,
     ): IncomingInviteMediaSelection? {
-        fun lookTrackMatching(codec: String, additional: String = "", notAdditional: String = ""): Pair<Int,String>? {
-            //TODO: also match on fmtp
+        fun lookTrackMatching(
+            codec: String,
+            additional: String = "",
+            notAdditional: String = "",
+        ): Pair<Int, String>? {
+            // TODO: also match on fmtp
             val maps = attributes.filter { it.startsWith("rtpmap") && it.contains(codec) }
-            val matches = maps.map { m ->
-                val track = m.split("[: ]+".toRegex())[1].toInt()
-                val desc = m
-                Pair(track, desc)
-            }
-            Rlog.d(logTag, "Matching $codec, got $matches")
-            val matches2 = if(matches.size > 1) {
-                matches.sortedBy { m ->
-                    val fmtp = attributes.firstOrNull { it.startsWith("fmtp:${m.first}") }.orEmpty()
-                    Rlog.d(logTag, "Matching $codec, for match $m got fmtp $fmtp")
-                    when {
-                        // For AMR, do not prefer an rtpmap-only payload when valid fmtp payloads exist.
-                        codec.startsWith("AMR") && fmtp.isEmpty() -> 100
-
-                        // This stack currently sends bandwidth-efficient AMR, so avoid octet-align=1.
-                        notAdditional.isNotEmpty() && fmtp.contains(notAdditional) -> 90
-
-                        // Optional positive preference for codecs/callers where we have one.
-                        additional.isNotEmpty() && fmtp.contains(additional) -> 0
-
-                        else -> 10
-                    }
+            val matches =
+                maps.map { m ->
+                    val track = m.split("[: ]+".toRegex())[1].toInt()
+                    val desc = m
+                    Pair(track, desc)
                 }
-            } else {
-                matches
-            }
+            Rlog.d(logTag, "Matching $codec, got $matches")
+            val matches2 =
+                if (matches.size > 1) {
+                    matches.sortedBy { m ->
+                        val fmtp = attributes.firstOrNull { it.startsWith("fmtp:${m.first}") }.orEmpty()
+                        Rlog.d(logTag, "Matching $codec, for match $m got fmtp $fmtp")
+                        when {
+                            // For AMR, do not prefer an rtpmap-only payload when valid fmtp payloads exist.
+                            codec.startsWith("AMR") && fmtp.isEmpty() -> 100
+
+                            // This stack currently sends bandwidth-efficient AMR, so avoid octet-align=1.
+                            notAdditional.isNotEmpty() && fmtp.contains(notAdditional) -> 90
+
+                            // Optional positive preference for codecs/callers where we have one.
+                            additional.isNotEmpty() && fmtp.contains(additional) -> 0
+
+                            else -> 10
+                        }
+                    }
+                } else {
+                    matches
+                }
             Rlog.d(logTag, "Matching2 $codec, got $matches2")
             return matches2.firstOrNull()
         }
 
-        fun trackRequirements(track: Int): String? {
-            return attributes.firstOrNull() { it.startsWith("fmtp:$track") }
-        }
+        fun trackRequirements(track: Int): String? = attributes.firstOrNull { it.startsWith("fmtp:$track") }
 
-        val selectedAudioCodec = SipAudioCodecNegotiator.selectIncomingSpeechCodecFromOffer(
-            logTag = logTag,
-            sdp = sdp,
-            context = "incoming INVITE callId=$incomingCallId",
-            amrWbMediaCodecAvailable = amrWbMediaCodecAvailable,
-        )
-
-        val preferredAmrNbTrack = if (selectedAudioCodec == SipAudioCodecs.AMR_NB) {
-            lookTrackMatching(
-                SipAudioCodecNegotiator.speechCodecRtpmapName(selectedAudioCodec),
-                additional = "mode-set=7",
-                notAdditional = "octet-align=1",
+        val selectedAudioCodec =
+            SipAudioCodecNegotiator.selectIncomingSpeechCodecFromOffer(
+                logTag = logTag,
+                sdp = sdp,
+                context = "incoming INVITE callId=$incomingCallId",
+                amrWbMediaCodecAvailable = amrWbMediaCodecAvailable,
             )
-        } else {
-            null
-        }
-        val (amrTrack, amrTrackDesc) = preferredAmrNbTrack ?: lookTrackMatching(
-            SipAudioCodecNegotiator.speechCodecRtpmapName(selectedAudioCodec),
-            additional = "",
-            notAdditional = "octet-align=1",
-        ) ?: return null
+
+        val preferredAmrNbTrack =
+            if (selectedAudioCodec == SipAudioCodecs.AMR_NB) {
+                lookTrackMatching(
+                    SipAudioCodecNegotiator.speechCodecRtpmapName(selectedAudioCodec),
+                    additional = "mode-set=7",
+                    notAdditional = "octet-align=1",
+                )
+            } else {
+                null
+            }
+        val (amrTrack, amrTrackDesc) =
+            preferredAmrNbTrack ?: lookTrackMatching(
+                SipAudioCodecNegotiator.speechCodecRtpmapName(selectedAudioCodec),
+                additional = "",
+                notAdditional = "octet-align=1",
+            ) ?: return null
         val amrTrackRequirements = trackRequirements(amrTrack)
         Rlog.d(
             logTag,
@@ -271,7 +286,6 @@ internal object SipIncomingInviteOfferBuilder {
     }
 }
 
-
 internal object SipIncomingInviteOfferParser {
     fun parse(
         request: SipRequest,
@@ -297,19 +311,21 @@ internal object SipIncomingInviteOfferParser {
 
         val incomingSdpBasics = SipIncomingInviteSdpParser.parseBasics(request = request, logTag = logTag)
 
-        val incomingCapabilities = SipIncomingInviteCapabilityParser.parse(
-            request = request,
-            attributes = incomingSdpBasics.attributes,
-            logTag = logTag,
-        )
+        val incomingCapabilities =
+            SipIncomingInviteCapabilityParser.parse(
+                request = request,
+                attributes = incomingSdpBasics.attributes,
+                logTag = logTag,
+            )
 
-        val incomingMediaSelection = SipIncomingInviteMediaSelector.select(
-            sdp = incomingSdpBasics.sdp,
-            attributes = incomingSdpBasics.attributes,
-            incomingCallId = incomingCallId,
-            amrWbMediaCodecAvailable = amrWbMediaCodecAvailable,
-            logTag = logTag,
-        ) ?: return null
+        val incomingMediaSelection =
+            SipIncomingInviteMediaSelector.select(
+                sdp = incomingSdpBasics.sdp,
+                attributes = incomingSdpBasics.attributes,
+                incomingCallId = incomingCallId,
+                amrWbMediaCodecAvailable = amrWbMediaCodecAvailable,
+                logTag = logTag,
+            ) ?: return null
 
         return SipIncomingInviteOfferBuilder.build(
             request = request,
@@ -320,4 +336,3 @@ internal object SipIncomingInviteOfferParser {
         )
     }
 }
-

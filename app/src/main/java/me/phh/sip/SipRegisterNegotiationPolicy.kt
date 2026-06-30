@@ -35,10 +35,11 @@ object SipRegisterNegotiationPolicy {
         challengeRealm: String?,
         preferCanonicalAfterPromoted494: Boolean,
     ): RegisterRealmDecision {
-        val candidateRealm = challengedRegistrarRealm(
-            defaultRealm = defaultRealm,
-            challengeRealm = challengeRealm,
-        )
+        val candidateRealm =
+            challengedRegistrarRealm(
+                defaultRealm = defaultRealm,
+                challengeRealm = challengeRealm,
+            )
         val targetRealm =
             if (preferCanonicalAfterPromoted494) defaultRealm else candidateRealm
 
@@ -60,6 +61,7 @@ object SipRegisterNegotiationPolicy {
             !alreadyPreferCanonical
 
     private val SAFE_HOST_RE = Regex("^[A-Za-z0-9.-]+$")
+
     /*
      * Some networks challenge IMS REGISTER with an EPC/AKA realm such as
      * epc.mncXXX.mccYYY.3gppnetwork.org. That realm is valid for the
@@ -72,13 +74,16 @@ object SipRegisterNegotiationPolicy {
         realm.startsWith("epc.", ignoreCase = true) &&
             realm.endsWith(".3gppnetwork.org", ignoreCase = true)
 
-
-    fun challengedRegistrarRealm(defaultRealm: String, challengeRealm: String?): String {
-        val candidate = challengeRealm
-            ?.trim()
-            ?.trim('"')
-            ?.lowercase()
-            ?: return defaultRealm
+    fun challengedRegistrarRealm(
+        defaultRealm: String,
+        challengeRealm: String?,
+    ): String {
+        val candidate =
+            challengeRealm
+                ?.trim()
+                ?.trim('"')
+                ?.lowercase()
+                ?: return defaultRealm
 
         if (candidate.isEmpty()) return defaultRealm
         if (candidate.equals(defaultRealm, ignoreCase = true)) return defaultRealm

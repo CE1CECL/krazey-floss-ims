@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 object SipRegEventSubscribeBuilder {
@@ -10,12 +10,13 @@ object SipRegEventSubscribeBuilder {
         serverPort: Int,
         imei: String,
     ): SipRequest {
-        val contactTel = SipContactHeaders.mmtelContact(
-            userPart = myTel,
-            localEndpoint = SipContactHeaders.localEndpoint(socket, serverPort),
-            transport = SipContactHeaders.transport(socket),
-            sipInstance = SipContactHeaders.sipInstanceFromImei(imei),
-        )
+        val contactTel =
+            SipContactHeaders.mmtelContact(
+                userPart = myTel,
+                localEndpoint = SipContactHeaders.localEndpoint(socket, serverPort),
+                transport = SipContactHeaders.transport(socket),
+                sipInstance = SipContactHeaders.sipInstanceFromImei(imei),
+            )
 
         return SipRequest(
             SipMethod.SUBSCRIBE,
