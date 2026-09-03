@@ -50,12 +50,13 @@ internal class SipSmsHandler(
         successCb: () -> Unit,
         failCb: () -> Unit,
     ) {
-        val pending = PendingOutgoingSms(
-            callId = callId,
-            ref = ref and 0xff,
-            successCb = successCb,
-            failCb = failCb,
-        )
+        val pending =
+            PendingOutgoingSms(
+                callId = callId,
+                ref = ref and 0xff,
+                successCb = successCb,
+                failCb = failCb,
+            )
 
         smsLock.withLock {
             pendingOutgoingSmsByCallId[callId] = pending
@@ -63,11 +64,12 @@ internal class SipSmsHandler(
         }
 
         timeoutScheduler(carrierSettings.smsPolicy.rpResultWaitMs) {
-            val expired = smsLock.withLock {
-                pendingOutgoingSmsByCallId.remove(callId)?.also {
-                    pendingOutgoingSmsByRef.remove(it.ref)
+            val expired =
+                smsLock.withLock {
+                    pendingOutgoingSmsByCallId.remove(callId)?.also {
+                        pendingOutgoingSmsByRef.remove(it.ref)
+                    }
                 }
-            }
 
             if (expired != null) {
                 Rlog.w(
@@ -85,13 +87,17 @@ internal class SipSmsHandler(
         }
     }
 
-    private fun removePendingOutgoingSms(request: SipRequest, sms: SipSms): PendingOutgoingSms? {
+    private fun removePendingOutgoingSms(
+        request: SipRequest,
+        sms: SipSms,
+    ): PendingOutgoingSms? {
         val inReplyTo = request.headers["in-reply-to"]?.getOrNull(0)
         val ref = smsRefToInt(sms.ref)
 
         return smsLock.withLock {
-            val pending = inReplyTo?.let { pendingOutgoingSmsByCallId.remove(it) }
-                ?: pendingOutgoingSmsByRef.remove(ref)
+            val pending =
+                inReplyTo?.let { pendingOutgoingSmsByCallId.remove(it) }
+                    ?: pendingOutgoingSmsByRef.remove(ref)
 
             if (pending != null) {
                 pendingOutgoingSmsByCallId.remove(pending.callId)
@@ -128,12 +134,16 @@ internal class SipSmsHandler(
         return true
     }
 
-    private fun failPendingOutgoingSmsForSipResponse(callId: String, response: SipResponse) {
-        val pending = smsLock.withLock {
-            pendingOutgoingSmsByCallId.remove(callId)?.also {
-                pendingOutgoingSmsByRef.remove(it.ref)
-            }
-        } ?: return
+    private fun failPendingOutgoingSmsForSipResponse(
+        callId: String,
+        response: SipResponse,
+    ) {
+        val pending =
+            smsLock.withLock {
+                pendingOutgoingSmsByCallId.remove(callId)?.also {
+                    pendingOutgoingSmsByRef.remove(it.ref)
+                }
+            } ?: return
 
         Rlog.w(
             tag,
@@ -149,12 +159,16 @@ internal class SipSmsHandler(
         }
     }
 
-    private fun failPendingOutgoingSmsForWriteFailure(callId: String, reason: String) {
-        val pending = smsLock.withLock {
-            pendingOutgoingSmsByCallId.remove(callId)?.also {
-                pendingOutgoingSmsByRef.remove(it.ref)
-            }
-        } ?: return
+    private fun failPendingOutgoingSmsForWriteFailure(
+        callId: String,
+        reason: String,
+    ) {
+        val pending =
+            smsLock.withLock {
+                pendingOutgoingSmsByCallId.remove(callId)?.also {
+                    pendingOutgoingSmsByRef.remove(it.ref)
+                }
+            } ?: return
 
         Rlog.w(
             tag,
@@ -170,15 +184,17 @@ internal class SipSmsHandler(
     }
 
     fun clearState(reason: String = "IMS state reset") {
-        val pending = smsLock.withLock {
-            val drained = pendingOutgoingSmsByCallId.values
-                .distinctBy { it.callId }
-                .toList()
-            smsHeadersMap.clear()
-            pendingOutgoingSmsByCallId.clear()
-            pendingOutgoingSmsByRef.clear()
-            drained
-        }
+        val pending =
+            smsLock.withLock {
+                val drained =
+                    pendingOutgoingSmsByCallId.values
+                        .distinctBy { it.callId }
+                        .toList()
+                smsHeadersMap.clear()
+                pendingOutgoingSmsByCallId.clear()
+                pendingOutgoingSmsByRef.clear()
+                drained
+            }
 
         pending.forEach { outgoing ->
             responseCallbackRemover(outgoing.callId)
@@ -211,18 +227,20 @@ internal class SipSmsHandler(
                     return 500
                 }
 
-                val dest = request.headers["from"]!![0]
-                    .getParams()
-                    .component1()
-                    .trimStart('<')
-                    .trimEnd('>')
+                val dest =
+                    request.headers["from"]!![0]
+                        .getParams()
+                        .component1()
+                        .trimStart('<')
+                        .trimEnd('>')
                 val callId = request.headers["call-id"]!![0]
                 val cseq = request.headers["cseq"]!![0]
-                val token = smsLock.withLock {
-                    val nextToken = smsToken++
-                    smsHeadersMap[nextToken] = smsHeaders(dest, callId, cseq)
-                    nextToken
-                }
+                val token =
+                    smsLock.withLock {
+                        val nextToken = smsToken++
+                        smsHeadersMap[nextToken] = smsHeaders(dest, callId, cseq)
+                        nextToken
+                    }
 
                 try {
                     receivedCb(token, "3gpp", sms.pdu!!)
@@ -247,12 +265,13 @@ internal class SipSmsHandler(
                 }
             }
 
-            else -> return 500
+            else -> {
+                return 500
+            }
         }
 
         return 200
     }
-
 
     /*
      * Write and flush a complete IMS SMS SIP frame to the socket writer.
@@ -265,18 +284,20 @@ internal class SipSmsHandler(
         label: String,
         bytes: ByteArray,
     ): Boolean {
-        val written = SipMessageWriter.write(
-            tag = tag,
-            writer = writer,
-            bytes = bytes,
-            label = label,
-        )
+        val written =
+            SipMessageWriter.write(
+                tag = tag,
+                writer = writer,
+                bytes = bytes,
+                label = label,
+            )
         if (written) {
-            val firstLine = bytes
-                .toString(Charsets.US_ASCII)
-                .lineSequence()
-                .firstOrNull()
-                .orEmpty()
+            val firstLine =
+                bytes
+                    .toString(Charsets.US_ASCII)
+                    .lineSequence()
+                    .firstOrNull()
+                    .orEmpty()
             Rlog.d(
                 tag,
                 "SIP SMS write complete label=$label bytes=${bytes.size} firstLine=$firstLine",
@@ -298,28 +319,31 @@ internal class SipSmsHandler(
             return
         }
         val smsManager = ctxt.getSystemService(SmsManager::class.java).createForSubscriptionId(subId)
-        val smscIdentity = try {
-            val i = smsManager
-                .javaClass
-                .getMethod("getSmscIdentity")
-                .invoke(smsManager) as? Uri
-            if (i?.host.isNullOrBlank()) null else i
-        } catch (t: Throwable) {
-            null
-        }
+        val smscIdentity =
+            try {
+                val i =
+                    smsManager
+                        .javaClass
+                        .getMethod("getSmscIdentity")
+                        .invoke(smsManager) as? Uri
+                if (i?.host.isNullOrBlank()) null else i
+            } catch (t: Throwable) {
+                null
+            }
         Rlog.d(tag, "SMSC identity available=${smscIdentity != null}")
 
         val frameworkSmsc = normalizeSmscNumber(smsSmsc)
         val identitySmsc = normalizeSmscNumber(smscIdentity?.host)
-        val managerSmsc = try {
-            val smscStr = smsManager.smscAddress
-            val parsed = normalizeSmscNumber(smscStr)
-            Rlog.d(tag, "SMSC manager address available=${parsed != null}")
-            parsed
-        } catch (t: Throwable) {
-            Rlog.d(tag, "smscAddress failed", t)
-            null
-        }
+        val managerSmsc =
+            try {
+                val smscStr = smsManager.smscAddress
+                val parsed = normalizeSmscNumber(smscStr)
+                Rlog.d(tag, "SMSC manager address available=${parsed != null}")
+                parsed
+            } catch (t: Throwable) {
+                Rlog.d(tag, "smscAddress failed", t)
+                null
+            }
 
         val realm = realmProvider()
         val mySip = mySipProvider()
@@ -333,16 +357,17 @@ internal class SipSmsHandler(
         val useSingTelSmsPolicy = carrierSettings.useSingTelStockPolicy(realm)
 
         fun decodeSingTelSmscPduAddress(value: String?): String? {
-            val raw = value
-                ?.trim()
-                ?.removePrefix("<")
-                ?.removeSuffix(">")
-                ?.removePrefix("sip:")
-                ?.substringBefore("@")
-                ?.substringBefore(";")
-                ?.trim()
-                ?.trimStart('+')
-                ?: return null
+            val raw =
+                value
+                    ?.trim()
+                    ?.removePrefix("<")
+                    ?.removeSuffix(">")
+                    ?.removePrefix("sip:")
+                    ?.substringBefore("@")
+                    ?.substringBefore(";")
+                    ?.trim()
+                    ?.trimStart('+')
+                    ?: return null
 
             val hex = raw.filter { ch -> ch.isDigit() || ch.lowercaseChar() in 'a'..'f' }
             if (hex.length < 4 || hex.length % 2 != 0) return null
@@ -355,16 +380,17 @@ internal class SipSmsHandler(
             if (hex.length < bcdEnd) return null
 
             val bcd = hex.substring(bcdStart, bcdEnd)
-            val digits = buildString {
-                var i = 0
-                while (i + 1 < bcd.length) {
-                    val lo = bcd[i]
-                    val hi = bcd[i + 1]
-                    if (hi != 'f' && hi != 'F') append(hi)
-                    if (lo != 'f' && lo != 'F') append(lo)
-                    i += 2
+            val digits =
+                buildString {
+                    var i = 0
+                    while (i + 1 < bcd.length) {
+                        val lo = bcd[i]
+                        val hi = bcd[i + 1]
+                        if (hi != 'f' && hi != 'F') append(hi)
+                        if (lo != 'f' && lo != 'F') append(lo)
+                        i += 2
+                    }
                 }
-            }
 
             if (digits.isBlank()) return null
             return when {
@@ -377,15 +403,16 @@ internal class SipSmsHandler(
         fun normalizeSingTelSmscAddress(value: String?): String? {
             decodeSingTelSmscPduAddress(value)?.let { return it }
 
-            val userPart = value
-                ?.trim()
-                ?.removePrefix("<")
-                ?.removeSuffix(">")
-                ?.removePrefix("sip:")
-                ?.substringBefore("@")
-                ?.substringBefore(";")
-                ?.trim()
-                ?: return null
+            val userPart =
+                value
+                    ?.trim()
+                    ?.removePrefix("<")
+                    ?.removeSuffix(">")
+                    ?.removePrefix("sip:")
+                    ?.substringBefore("@")
+                    ?.substringBefore(";")
+                    ?.trim()
+                    ?: return null
 
             if (userPart.isBlank()) return null
             val digits = userPart.trimStart('+')
@@ -418,19 +445,22 @@ internal class SipSmsHandler(
             Rlog.d(tag, "Using carrier-configured IMS SMS request and To URI shape")
         }
 
-        val securityHeaders = if (carrierSettings.ipsecSupported) {
-            """
+        val securityHeaders =
+            if (carrierSettings.ipsecSupported) {
+                """
                 Supported: sec-agree, path
                 Require: sec-agree
                 Proxy-Require: sec-agree
-            """.trimIndent()
-        } else {
-            "Supported: path"
-        }
-        val msg = SipRequest(
-            SipMethod.MESSAGE,
-            requestUri,
-            commonHeadersProvider() + """
+                """.trimIndent()
+            } else {
+                "Supported: path"
+            }
+        val msg =
+            SipRequest(
+                SipMethod.MESSAGE,
+                requestUri,
+                commonHeadersProvider() +
+                    """
                 From: <$mySip>
                 To: <$dest>
                 P-Preferred-Identity: <$mySip>
@@ -442,8 +472,8 @@ internal class SipSmsHandler(
                 Accept-Contact: *;+g.3gpp.smsip;require;explicit
                 Request-Disposition: no-fork
             """.toSipHeadersMap(),
-            data,
-        )
+                data,
+            )
 
         val callId = msg.headers["call-id"]!![0]
         rememberPendingOutgoingSms(callId, ref, successCb, failCb)
@@ -459,7 +489,9 @@ internal class SipSmsHandler(
                     true
                 }
 
-                resp.statusCode < 200 -> false
+                resp.statusCode < 200 -> {
+                    false
+                }
 
                 else -> {
                     failPendingOutgoingSmsForSipResponse(callId, resp)
@@ -478,7 +510,11 @@ internal class SipSmsHandler(
         }
     }
 
-    fun sendSmsAck(token: Int, ref: Int, error: Boolean) {
+    fun sendSmsAck(
+        token: Int,
+        ref: Int,
+        error: Boolean,
+    ) {
         Rlog.d(tag, "sending sms ack")
         val body = SipSmsEncodeAck(ref.toByte())
         val headers = smsLock.withLock { smsHeadersMap.remove(token) } ?: return
@@ -488,19 +524,22 @@ internal class SipSmsHandler(
             return
         }
 
-        val securityHeaders = if (carrierSettings.ipsecSupported) {
-            """
+        val securityHeaders =
+            if (carrierSettings.ipsecSupported) {
+                """
                 Proxy-Require: sec-agree
                 Require: sec-agree
                 Supported: path, gruu, sec-agree
-            """.trimIndent()
-        } else {
-            "Supported: path"
-        }
-        val msg = SipRequest(
-            SipMethod.MESSAGE,
-            headers.dest,
-            commonHeadersProvider() + """
+                """.trimIndent()
+            } else {
+                "Supported: path"
+            }
+        val msg =
+            SipRequest(
+                SipMethod.MESSAGE,
+                headers.dest,
+                commonHeadersProvider() +
+                    """
                 Cseq: ${headers.cseq}
                 In-Reply-To: ${headers.callId}
                 Content-Type: application/vnd.3gpp.sms
@@ -509,8 +548,8 @@ internal class SipSmsHandler(
                 Request-Disposition: no-fork
                 Accept-Contact: *;+g.3gpp.smsip
             """.toSipHeadersMap(),
-            body,
-        )
+                body,
+            )
 
         // Ignore response.
         val callId = msg.headers["call-id"]!![0]

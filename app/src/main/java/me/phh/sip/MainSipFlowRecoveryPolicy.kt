@@ -18,11 +18,10 @@ internal object MainSipFlowRecoveryPolicy {
     // short-lived flow loss on the controlled full reconnect path.
     const val MIN_RECOVERABLE_FLOW_AGE_MS = 4 * 60_000L
 
-    fun isRecoverableFlowAge(flowAgeMs: Long): Boolean =
-        flowAgeMs >= MIN_RECOVERABLE_FLOW_AGE_MS
+    fun isRecoverableFlowAge(flowAgeMs: Long): Boolean = flowAgeMs >= MIN_RECOVERABLE_FLOW_AGE_MS
 
-    fun mayKeepRegistration(state: MainSipFlowRecoveryState): Boolean {
-        return state.controlTransportIsTcp &&
+    fun mayKeepRegistration(state: MainSipFlowRecoveryState): Boolean =
+        state.controlTransportIsTcp &&
             state.imsReady &&
             state.ipsecResourcesOpen &&
             state.inboundServerListening &&
@@ -31,5 +30,4 @@ internal object MainSipFlowRecoveryPolicy {
             !state.reconnecting &&
             !state.accessMigrationPending &&
             !state.activeOrPendingCall
-    }
 }

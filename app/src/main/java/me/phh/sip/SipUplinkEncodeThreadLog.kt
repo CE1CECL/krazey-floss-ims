@@ -1,6 +1,5 @@
 package me.phh.sip
 
-
 internal data class SipUplinkEncodeThreadStartState(
     val audioCodec: NegotiatedAudioCodec,
     val callId: String,
@@ -20,14 +19,9 @@ internal object SipUplinkEncodeThreadLog {
             "callId=$callId amrTrack=$amrTrack " +
             "remote=$remote gen=$generation"
 
-    fun rtpPacketLabel(sequenceNumber: Int): String =
-        "RTP packet #$sequenceNumber"
+    fun rtpPacketLabel(sequenceNumber: Int): String = "RTP packet #$sequenceNumber"
 
-
-    fun incomingSettleSilenceLabel(sequenceNumber: Int): String =
-        "incoming RTP settle silence #$sequenceNumber"
-
-
+    fun incomingSettleSilenceLabel(sequenceNumber: Int): String = "incoming RTP settle silence #$sequenceNumber"
 
     fun startState(
         call: SipHandler.Call,
@@ -39,8 +33,5 @@ internal object SipUplinkEncodeThreadLog {
             generation = generation,
         )
 
-    fun noCurrentCallLog(reason: String): String =
-        "callEncodeThread: no currentCall; not starting encoder reason=$reason"
-
-
+    fun noCurrentCallLog(reason: String): String = "callEncodeThread: no currentCall; not starting encoder reason=$reason"
 }

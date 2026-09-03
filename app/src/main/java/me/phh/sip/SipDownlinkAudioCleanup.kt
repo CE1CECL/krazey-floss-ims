@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.content.Context
@@ -12,7 +12,12 @@ internal object SipDownlinkAudioCleanup {
     private const val INITIAL_THREAD_JOIN_MS = 500L
     private const val FINAL_THREAD_JOIN_MS = 1_500L
 
-    private fun joinThread(logTag: String, label: String, thread: Thread, timeoutMs: Long): Boolean {
+    private fun joinThread(
+        logTag: String,
+        label: String,
+        thread: Thread,
+        timeoutMs: Long,
+    ): Boolean {
         try {
             thread.interrupt()
             thread.join(timeoutMs)
@@ -24,7 +29,10 @@ internal object SipDownlinkAudioCleanup {
         return !thread.isAlive
     }
 
-    private fun stopAudioTrack(logTag: String, audioTrack: AudioTrack) {
+    private fun stopAudioTrack(
+        logTag: String,
+        audioTrack: AudioTrack,
+    ) {
         try {
             audioTrack.stop()
         } catch (t: Throwable) {
@@ -32,7 +40,10 @@ internal object SipDownlinkAudioCleanup {
         }
     }
 
-    private fun releaseAudioTrack(logTag: String, audioTrack: AudioTrack) {
+    private fun releaseAudioTrack(
+        logTag: String,
+        audioTrack: AudioTrack,
+    ) {
         try {
             audioTrack.release()
         } catch (t: Throwable) {
@@ -40,7 +51,10 @@ internal object SipDownlinkAudioCleanup {
         }
     }
 
-    private fun releaseDecoder(logTag: String, decoder: MediaCodec) {
+    private fun releaseDecoder(
+        logTag: String,
+        decoder: MediaCodec,
+    ) {
         try {
             decoder.stop()
         } catch (t: Throwable) {
@@ -66,16 +80,18 @@ internal object SipDownlinkAudioCleanup {
         val decoderStopped = decoderWorker?.stop() ?: true
         playoutBuffers?.running?.set(false)
 
-        var playoutStopped = playoutThread == null ||
-            joinThread(logTag, "Downlink playout", playoutThread, INITIAL_THREAD_JOIN_MS)
+        var playoutStopped =
+            playoutThread == null ||
+                joinThread(logTag, "Downlink playout", playoutThread, INITIAL_THREAD_JOIN_MS)
         if (!playoutStopped && audioTrack != null) {
             stopAudioTrack(logTag, audioTrack)
-            playoutStopped = joinThread(
-                logTag,
-                "Downlink playout",
-                playoutThread!!,
-                FINAL_THREAD_JOIN_MS,
-            )
+            playoutStopped =
+                joinThread(
+                    logTag,
+                    "Downlink playout",
+                    playoutThread!!,
+                    FINAL_THREAD_JOIN_MS,
+                )
         }
 
         if (audioTrack != null) {
@@ -119,22 +135,24 @@ internal object SipDownlinkAudioCleanup {
         val decoderStopped = decoderWorker.stop()
 
         playoutBuffers.running.set(false)
-        var playoutStopped = joinThread(
-            logTag,
-            "Downlink playout",
-            playoutThread,
-            INITIAL_THREAD_JOIN_MS,
-        )
+        var playoutStopped =
+            joinThread(
+                logTag,
+                "Downlink playout",
+                playoutThread,
+                INITIAL_THREAD_JOIN_MS,
+            )
         if (!playoutStopped) {
             // A blocking AudioTrack.write may not react to interruption. Stop
             // the track to unblock it, then wait once more before releasing.
             stopAudioTrack(logTag, audioTrack)
-            playoutStopped = joinThread(
-                logTag,
-                "Downlink playout",
-                playoutThread,
-                FINAL_THREAD_JOIN_MS,
-            )
+            playoutStopped =
+                joinThread(
+                    logTag,
+                    "Downlink playout",
+                    playoutThread,
+                    FINAL_THREAD_JOIN_MS,
+                )
         }
 
         if (playoutStopped) {

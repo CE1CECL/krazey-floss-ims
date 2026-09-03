@@ -3,8 +3,8 @@ package me.phh.sip
 
 import android.telephony.ims.stub.ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN
 import android.telephony.ims.stub.ImsRegistrationImplBase.REGISTRATION_TECH_LTE
-import java.net.InetAddress
 import org.junit.Test
+import java.net.InetAddress
 
 class SipCarrierDatabaseTest {
     private fun voiceProfile(
@@ -79,12 +79,13 @@ class SipCarrierDatabaseTest {
     @Test
     fun `qualified mapping wins over generic PLMN mapping`() {
         val generic = SipCarrierDatabaseMapping("20404", "204004", "Vodafone_NL")
-        val mvno = SipCarrierDatabaseMapping(
-            sourcePlmn = "20404",
-            canonicalMccMnc = "204004",
-            mnoName = "USCC_US",
-            spn = "U.S. Cellular",
-        )
+        val mvno =
+            SipCarrierDatabaseMapping(
+                sourcePlmn = "20404",
+                canonicalMccMnc = "204004",
+                mnoName = "USCC_US",
+                spn = "U.S. Cellular",
+            )
 
         require(
             SipCarrierDatabaseSelector.select(
@@ -103,12 +104,13 @@ class SipCarrierDatabaseTest {
     @Test
     fun `IMSI subset is matched after source PLMN`() {
         val generic = SipCarrierDatabaseMapping("23430", "234030", "EE_GB")
-        val mvno = SipCarrierDatabaseMapping(
-            sourcePlmn = "23430",
-            canonicalMccMnc = "234030",
-            mnoName = "EE_GB:MVNO",
-            subset = "1234",
-        )
+        val mvno =
+            SipCarrierDatabaseMapping(
+                sourcePlmn = "23430",
+                canonicalMccMnc = "234030",
+                mnoName = "EE_GB:MVNO",
+                subset = "1234",
+            )
 
         require(
             SipCarrierDatabaseSelector.select(
@@ -121,19 +123,21 @@ class SipCarrierDatabaseTest {
     @Test
     fun `SIM group identifiers select the qualified MVNO mapping`() {
         val generic = SipCarrierDatabaseMapping("310260", "310260", "Generic_US")
-        val gid1Mvno = SipCarrierDatabaseMapping(
-            sourcePlmn = "310260",
-            canonicalMccMnc = "310260",
-            mnoName = "Gid1_MVNO",
-            gid1 = "BA",
-        )
-        val gid2Mvno = SipCarrierDatabaseMapping(
-            sourcePlmn = "310260",
-            canonicalMccMnc = "310260",
-            mnoName = "Gid2_MVNO",
-            gid1 = "BA",
-            gid2 = "10",
-        )
+        val gid1Mvno =
+            SipCarrierDatabaseMapping(
+                sourcePlmn = "310260",
+                canonicalMccMnc = "310260",
+                mnoName = "Gid1_MVNO",
+                gid1 = "BA",
+            )
+        val gid2Mvno =
+            SipCarrierDatabaseMapping(
+                sourcePlmn = "310260",
+                canonicalMccMnc = "310260",
+                mnoName = "Gid2_MVNO",
+                gid1 = "BA",
+                gid2 = "10",
+            )
 
         require(
             SipCarrierDatabaseSelector.select(
@@ -151,14 +155,15 @@ class SipCarrierDatabaseTest {
 
     @Test
     fun `firmware profile activates supported runtime policy`() {
-        val record = SipCarrierDatabaseRecord(
-            mapping = SipCarrierDatabaseMapping("00101", "001001", "Test_MNO"),
-            profiles = listOf(voiceProfile()),
-            serviceSwitches = mapOf("enableServiceVolte" to true),
-            csfbStatusRules = setOf("380", "5xx"),
-            voiceCsfbStatusRules = setOf("403"),
-            emergencyDomain = "PS",
-        )
+        val record =
+            SipCarrierDatabaseRecord(
+                mapping = SipCarrierDatabaseMapping("00101", "001001", "Test_MNO"),
+                profiles = listOf(voiceProfile()),
+                serviceSwitches = mapOf("enableServiceVolte" to true),
+                csfbStatusRules = setOf("380", "5xx"),
+                voiceCsfbStatusRules = setOf("403"),
+                emergencyDomain = "PS",
+            )
 
         val resolved = record.applyTo(SipCarrierPolicy.defaultFor("001", "001"))
 
@@ -225,28 +230,30 @@ class SipCarrierDatabaseTest {
     @Test
     fun `firmware sentinels retain safe runtime defaults`() {
         val base = SipCarrierPolicy.defaultFor("001", "001")
-        val profile = voiceProfile().copy(
-            registrationRetryBaseSeconds = 0,
-            registrationRetryMaxSeconds = -1,
-            registrationPcscfPolicyOn403 = "perm_stop",
-            minSeSeconds = 0,
-            sessionExpiresSeconds = 0,
-            inviteTimeoutSeconds = 0,
-            ringingTimerSeconds = -1,
-            ringbackTimerSeconds = -1,
-            keepAliveIntervalMs = 0,
-            registrationExpiresSeconds = 0,
-            mssSize = 20,
-            pcscfPreference = 99,
-        )
-        val resolved = SipCarrierDatabaseRecord(
-            mapping = SipCarrierDatabaseMapping("00101", "001001", "Test_MNO"),
-            profiles = listOf(profile),
-            serviceSwitches = emptyMap(),
-            csfbStatusRules = emptySet(),
-            voiceCsfbStatusRules = emptySet(),
-            emergencyDomain = null,
-        ).applyTo(base)
+        val profile =
+            voiceProfile().copy(
+                registrationRetryBaseSeconds = 0,
+                registrationRetryMaxSeconds = -1,
+                registrationPcscfPolicyOn403 = "perm_stop",
+                minSeSeconds = 0,
+                sessionExpiresSeconds = 0,
+                inviteTimeoutSeconds = 0,
+                ringingTimerSeconds = -1,
+                ringbackTimerSeconds = -1,
+                keepAliveIntervalMs = 0,
+                registrationExpiresSeconds = 0,
+                mssSize = 20,
+                pcscfPreference = 99,
+            )
+        val resolved =
+            SipCarrierDatabaseRecord(
+                mapping = SipCarrierDatabaseMapping("00101", "001001", "Test_MNO"),
+                profiles = listOf(profile),
+                serviceSwitches = emptyMap(),
+                csfbStatusRules = emptySet(),
+                voiceCsfbStatusRules = emptySet(),
+                emergencyDomain = null,
+            ).applyTo(base)
 
         require(resolved.minSeSeconds == base.minSeSeconds)
         require(resolved.sessionExpiresSeconds == base.sessionExpiresSeconds)
@@ -266,23 +273,26 @@ class SipCarrierDatabaseTest {
 
     @Test
     fun `manual overlay remains authoritative over firmware profile`() {
-        val firmware = SipCarrierDatabaseRecord(
-            mapping = SipCarrierDatabaseMapping("00101", "001001", "Test_MNO"),
-            profiles = listOf(voiceProfile()),
-            serviceSwitches = emptyMap(),
-            csfbStatusRules = setOf("503"),
-            voiceCsfbStatusRules = emptySet(),
-            emergencyDomain = null,
-        ).applyTo(SipCarrierPolicy.defaultFor("001", "001"))
+        val firmware =
+            SipCarrierDatabaseRecord(
+                mapping = SipCarrierDatabaseMapping("00101", "001001", "Test_MNO"),
+                profiles = listOf(voiceProfile()),
+                serviceSwitches = emptyMap(),
+                csfbStatusRules = setOf("503"),
+                voiceCsfbStatusRules = emptySet(),
+                emergencyDomain = null,
+            ).applyTo(SipCarrierPolicy.defaultFor("001", "001"))
 
-        val overridden = SipCarrierPolicyOverlay(
-            booleans = mapOf("control_socket_udp" to false),
-            strings = mapOf("outgoing_target_uri_type" to "tel"),
-            stringArrays = mapOf(
-                "security_client_algs" to listOf("hmac-sha-1-96"),
-                "invite_csfb_status_codes" to emptyList(),
-            ),
-        ).applyTo(firmware)
+        val overridden =
+            SipCarrierPolicyOverlay(
+                booleans = mapOf("control_socket_udp" to false),
+                strings = mapOf("outgoing_target_uri_type" to "tel"),
+                stringArrays =
+                    mapOf(
+                        "security_client_algs" to listOf("hmac-sha-1-96"),
+                        "invite_csfb_status_codes" to emptyList(),
+                    ),
+            ).applyTo(firmware)
 
         require(!overridden.isControlSocketUdp)
         require(

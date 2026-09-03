@@ -4,11 +4,15 @@ package me.phh.sip
 import org.junit.Test
 
 class SipRegistrationFailurePolicyTest {
-    private fun response(code: Int, retryAfter: String? = null): SipResponse = SipResponse(
-        code,
-        "Failure",
-        retryAfter?.let { mapOf("retry-after" to listOf(it)) }.orEmpty(),
-    )
+    private fun response(
+        code: Int,
+        retryAfter: String? = null,
+    ): SipResponse =
+        SipResponse(
+            code,
+            "Failure",
+            retryAfter?.let { mapOf("retry-after" to listOf(it)) }.orEmpty(),
+        )
 
     @Test
     fun `Retry-After accepts delay and ignores parameters`() {
@@ -18,12 +22,13 @@ class SipRegistrationFailurePolicyTest {
 
     @Test
     fun `403 permanent stop does not retry or rotate`() {
-        val decision = SipRegistrationFailurePolicy.decide(
-            response(403),
-            SipRegistrationRecoveryPolicy(
-                forbiddenPcscfPolicy = RegistrationForbiddenPcscfPolicy.PERMANENT_STOP,
-            ),
-        )
+        val decision =
+            SipRegistrationFailurePolicy.decide(
+                response(403),
+                SipRegistrationRecoveryPolicy(
+                    forbiddenPcscfPolicy = RegistrationForbiddenPcscfPolicy.PERMANENT_STOP,
+                ),
+            )
 
         require(!decision.retry)
         require(!decision.blockCurrentPcscf)
@@ -31,18 +36,20 @@ class SipRegistrationFailurePolicyTest {
 
     @Test
     fun `403 same and next P-CSCF policies differ only in rotation`() {
-        val same = SipRegistrationFailurePolicy.decide(
-            response(403, "60"),
-            SipRegistrationRecoveryPolicy(
-                forbiddenPcscfPolicy = RegistrationForbiddenPcscfPolicy.SAME_PCSCF,
-            ),
-        )
-        val next = SipRegistrationFailurePolicy.decide(
-            response(403, "60"),
-            SipRegistrationRecoveryPolicy(
-                forbiddenPcscfPolicy = RegistrationForbiddenPcscfPolicy.NEXT_PCSCF,
-            ),
-        )
+        val same =
+            SipRegistrationFailurePolicy.decide(
+                response(403, "60"),
+                SipRegistrationRecoveryPolicy(
+                    forbiddenPcscfPolicy = RegistrationForbiddenPcscfPolicy.SAME_PCSCF,
+                ),
+            )
+        val next =
+            SipRegistrationFailurePolicy.decide(
+                response(403, "60"),
+                SipRegistrationRecoveryPolicy(
+                    forbiddenPcscfPolicy = RegistrationForbiddenPcscfPolicy.NEXT_PCSCF,
+                ),
+            )
 
         require(same.retry && !same.blockCurrentPcscf)
         require(next.retry && next.blockCurrentPcscf)
@@ -51,14 +58,16 @@ class SipRegistrationFailurePolicyTest {
 
     @Test
     fun `short 503 Retry-After stays on current P-CSCF`() {
-        val shortRetry = SipRegistrationFailurePolicy.decide(
-            response(503, "15"),
-            SipRegistrationRecoveryPolicy(),
-        )
-        val longRetry = SipRegistrationFailurePolicy.decide(
-            response(503, "60"),
-            SipRegistrationRecoveryPolicy(),
-        )
+        val shortRetry =
+            SipRegistrationFailurePolicy.decide(
+                response(503, "15"),
+                SipRegistrationRecoveryPolicy(),
+            )
+        val longRetry =
+            SipRegistrationFailurePolicy.decide(
+                response(503, "60"),
+                SipRegistrationRecoveryPolicy(),
+            )
 
         require(shortRetry.retry && !shortRetry.blockCurrentPcscf)
         require(longRetry.retry && longRetry.blockCurrentPcscf)

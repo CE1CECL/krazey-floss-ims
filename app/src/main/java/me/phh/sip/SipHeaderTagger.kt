@@ -1,8 +1,11 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 object SipHeaderTagger {
-    fun addTag(header: String, tag: String): String {
+    fun addTag(
+        header: String,
+        tag: String,
+    ): String {
         val trimmedHeader = header.trim()
         if (trimmedHeader.contains(";tag=", ignoreCase = true)) return trimmedHeader
         if (trimmedHeader.contains(">")) return "$trimmedHeader;tag=$tag"

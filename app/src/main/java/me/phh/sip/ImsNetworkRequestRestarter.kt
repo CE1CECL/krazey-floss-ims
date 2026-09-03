@@ -25,7 +25,10 @@ internal class ImsNetworkRequestRestarter(
         )
     }
 
-    fun schedule(reason: String, initialDelayMs: Long = 12_000L) {
+    fun schedule(
+        reason: String,
+        initialDelayMs: Long = 12_000L,
+    ) {
         if (!scheduled.compareAndSet(false, true)) {
             Rlog.w(tag, "IMS network request restart already scheduled, ignore: $reason")
             return

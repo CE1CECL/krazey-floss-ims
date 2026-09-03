@@ -22,12 +22,6 @@ android_app {
         "kotlinx_coroutines_android",
     ],
 
-    jni_libs: [
-        "librnnoise_jni",
-        "libwebrtc_aec_jni",
-    ],
-    use_embedded_native_libs: true,
-
     required: ["PhhImsOverlay"],
 }
 

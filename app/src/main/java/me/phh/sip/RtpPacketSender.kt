@@ -14,17 +14,18 @@ internal object RtpPacketSender {
         remoteAddr: InetAddress,
         remotePort: Int,
         label: String,
-    ): Boolean {
-        return try {
-            val packet = if (rtpSocket.isConnected) {
-                // A connected DatagramSocket must be sent without an explicit packet
-                // address on Android; otherwise libcore can throw
-                // "connected address and packet address differ" even when the
-                // dialog was only re-targeted by SDP/UPDATE during the call.
-                DatagramPacket(bytes, bytes.size)
-            } else {
-                DatagramPacket(bytes, bytes.size, remoteAddr, remotePort)
-            }
+    ): Boolean =
+        try {
+            val packet =
+                if (rtpSocket.isConnected) {
+                    // A connected DatagramSocket must be sent without an explicit packet
+                    // address on Android; otherwise libcore can throw
+                    // "connected address and packet address differ" even when the
+                    // dialog was only re-targeted by SDP/UPDATE during the call.
+                    DatagramPacket(bytes, bytes.size)
+                } else {
+                    DatagramPacket(bytes, bytes.size, remoteAddr, remotePort)
+                }
 
             rtpSocket.send(packet)
             true
@@ -38,5 +39,4 @@ internal object RtpPacketSender {
             )
             false
         }
-    }
 }

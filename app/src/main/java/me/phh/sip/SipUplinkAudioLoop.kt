@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.media.AudioRecord
@@ -14,7 +14,6 @@ internal object SipUplinkAudioLoop {
         bufferSize: Int,
         encoder: MediaCodec,
         audioCodec: NegotiatedAudioCodec,
-        echoCancellation: SipEchoCancellationSession,
         callStopped: AtomicBoolean,
         callGeneration: AtomicInteger,
         generation: Int,
@@ -39,9 +38,10 @@ internal object SipUplinkAudioLoop {
         var firstPacket = true
         var realFrameCount = 0
         val buffer = ByteArray(bufferSize)
-        val aecOutput = ByteArray(
-            bufferSize + (audioCodec.sampleRate / 100 * 2),
-        )
+        val aecOutput =
+            ByteArray(
+                bufferSize + (audioCodec.sampleRate / 100 * 2),
+            )
 
         while (true) {
             if (callStopped.get() || callGeneration.get() != generation) break
@@ -51,42 +51,26 @@ internal object SipUplinkAudioLoop {
             if (callStopped.get() || callGeneration.get() != generation) break
             if (nRead <= 0) continue
 
-            val aecSize = echoCancellation.processCapture(
-                pcm = buffer,
-                sizeBytes = nRead,
-                output = aecOutput,
-                generation = generation,
-            )
-            val encodeBuffer: ByteArray
-            val encodeSize: Int
-            if (aecSize == SipEchoCancellationSession.CAPTURE_BYPASS) {
-                encodeBuffer = buffer
-                encodeSize = nRead
-            } else {
-                if (aecSize == 0) continue
-                encodeBuffer = aecOutput
-                encodeSize = aecSize
-            }
-
             SipUplinkAudioEncoder.queuePcmInput(
                 logTag = logTag,
                 encoder = encoder,
-                buffer = encodeBuffer,
-                size = encodeSize,
+                buffer = buffer,
+                size = nRead,
                 gainQ8 = gainQ8,
                 logInput = realFrameCount < 5,
             )
 
-            val drainState = SipUplinkAudioEncoder.drainEncodedOutput(
-                logTag = logTag,
-                encoder = encoder,
-                audioCodec = audioCodec,
-                firstPacket = firstPacket,
-                realFrameCount = realFrameCount,
-                nextSequenceNumber = nextSequenceNumber,
-                nextTimestamp = nextTimestamp,
-                sendFrame = sendFrame,
-            )
+            val drainState =
+                SipUplinkAudioEncoder.drainEncodedOutput(
+                    logTag = logTag,
+                    encoder = encoder,
+                    audioCodec = audioCodec,
+                    firstPacket = firstPacket,
+                    realFrameCount = realFrameCount,
+                    nextSequenceNumber = nextSequenceNumber,
+                    nextTimestamp = nextTimestamp,
+                    sendFrame = sendFrame,
+                )
             firstPacket = drainState.firstPacket
             realFrameCount = drainState.realFrameCount
         }

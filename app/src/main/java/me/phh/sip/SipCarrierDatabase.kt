@@ -95,32 +95,37 @@ data class SipCarrierDatabaseRecord(
     val verification: String = "firmware_reference",
 ) {
     val voiceProfile: SipCarrierDatabaseProfile?
-        get() = profiles.firstOrNull {
-            !it.emergency && it.pdn == "ims" && "mmtel" in it.services
-        }
+        get() =
+            profiles.firstOrNull {
+                !it.emergency && it.pdn == "ims" && "mmtel" in it.services
+            }
 
     fun applyTo(base: SipCarrierPolicy): SipCarrierPolicy {
         val profile = voiceProfile ?: return base
-        val supportedAuthAlgorithms = profile.authAlgorithms.filter {
-            it == "hmac-sha-1-96" || it == "hmac-md5-96"
-        }
-        val supportedEncryptionAlgorithms = profile.encryptionAlgorithms.filter {
-            it == "null" || it == "aes-cbc"
-        }
-        val uriType = when (profile.remoteUriType.lowercase()) {
-            "sip" -> SipCarrierPolicy.OutgoingTargetUriType.SIP_USER_PHONE
-            "tel" -> SipCarrierPolicy.OutgoingTargetUriType.TEL
-            else -> base.outgoingTargetUriType
-        }
+        val supportedAuthAlgorithms =
+            profile.authAlgorithms.filter {
+                it == "hmac-sha-1-96" || it == "hmac-md5-96"
+            }
+        val supportedEncryptionAlgorithms =
+            profile.encryptionAlgorithms.filter {
+                it == "null" || it == "aes-cbc"
+            }
+        val uriType =
+            when (profile.remoteUriType.lowercase()) {
+                "sip" -> SipCarrierPolicy.OutgoingTargetUriType.SIP_USER_PHONE
+                "tel" -> SipCarrierPolicy.OutgoingTargetUriType.TEL
+                else -> base.outgoingTargetUriType
+            }
 
         return base.copy(
             transportPolicy = SipTransportPolicy.fromSamsung(profile.transport),
             ipVersionPolicy = SipIpVersionPolicy.fromSamsung(profile.ipVersion),
             ipsecSupported = profile.supportIpsec,
-            preconditionPolicy = SipPreconditionPolicy(
-                cellular = profile.usePrecondition,
-                iwlan = profile.wifiPrecondition,
-            ),
+            preconditionPolicy =
+                SipPreconditionPolicy(
+                    cellular = profile.usePrecondition,
+                    iwlan = profile.wifiPrecondition,
+                ),
             roamingSupported = profile.supportRoaming,
             supportedNetworks = profile.networks,
             supportedServices = profile.services,
@@ -129,25 +134,31 @@ data class SipCarrierDatabaseRecord(
             registerGruuSupported = profile.enableGruu,
             outgoingTargetUriType = uriType,
             securityClientAlgs = supportedAuthAlgorithms.ifEmpty { base.securityClientAlgs },
-            securityClientEalgs = supportedEncryptionAlgorithms.ifEmpty {
-                base.securityClientEalgs
-            },
+            securityClientEalgs =
+                supportedEncryptionAlgorithms.ifEmpty {
+                    base.securityClientEalgs
+                },
             minSeSeconds = profile.minSeSeconds.positiveOr(base.minSeSeconds),
-            sessionExpiresSeconds = profile.sessionExpiresSeconds.positiveOr(
-                base.sessionExpiresSeconds,
-            ),
-            registrationExpiresSeconds = profile.registrationExpiresSeconds
-                .positiveOr(base.registrationExpiresSeconds),
-            mssSize = profile.mssSize?.takeIf { it in 300..10_000 }
-                ?: base.mssSize,
-            pcscfPreference = profile.pcscfPreference?.takeIf { it in 0..5 }
-                ?: base.pcscfPreference,
+            sessionExpiresSeconds =
+                profile.sessionExpiresSeconds.positiveOr(
+                    base.sessionExpiresSeconds,
+                ),
+            registrationExpiresSeconds =
+                profile.registrationExpiresSeconds
+                    .positiveOr(base.registrationExpiresSeconds),
+            mssSize =
+                profile.mssSize?.takeIf { it in 300..10_000 }
+                    ?: base.mssSize,
+            pcscfPreference =
+                profile.pcscfPreference?.takeIf { it in 0..5 }
+                    ?: base.pcscfPreference,
             sosUrnRequired = profile.sosUrnRequired,
             blockDeregistrationOnSrvcc = profile.blockDeregistrationOnSrvcc,
             lastPaniHeader = profile.lastPaniHeader,
-            supportedGeolocationPhase = profile.supportedGeolocationPhase
-                ?.takeIf { it in 0..4 }
-                ?: base.supportedGeolocationPhase,
+            supportedGeolocationPhase =
+                profile.supportedGeolocationPhase
+                    ?.takeIf { it in 0..4 }
+                    ?: base.supportedGeolocationPhase,
             audioCodecs = profile.audioCodecs.toSet(),
             evsEnabled = profile.enableEvsCodec,
             emergencyDomain = emergencyDomain,
@@ -155,81 +166,92 @@ data class SipCarrierDatabaseRecord(
             noSimEmergencyDomain = noSimEmergencyDomain,
             supplementaryServiceDomain = supplementaryServiceDomain,
             supplementaryServiceCallForwardUriType =
-                supplementaryServiceCallForwardUriType,
+            supplementaryServiceCallForwardUriType,
             srvccVersion = srvccVersion,
             defaultSmsFallbackEnabled = defaultSmsFallbackEnabled,
             iwlanPaniFormat = iwlanPaniFormat,
-            smsPolicy = base.smsPolicy.copy(
-                fallbackSipStatusCodes = when (defaultSmsFallbackEnabled) {
-                    false -> emptySet()
-                    else -> base.smsPolicy.fallbackSipStatusCodes
-                },
-            ),
-            registrationRecoveryPolicy = base.registrationRecoveryPolicy.copy(
-                retryBaseMs = profile.registrationRetryBaseSeconds
-                    .positiveSecondsToMs()
-                    ?: base.registrationRecoveryPolicy.retryBaseMs,
-                retryMaxMs = profile.registrationRetryMaxSeconds
-                    .positiveSecondsToMs()
-                    ?: base.registrationRecoveryPolicy.retryMaxMs,
-                forbiddenPcscfPolicy = importedForbiddenPcscfPolicy(
-                    profile.registrationPcscfPolicyOn403,
-                ) ?: base.registrationRecoveryPolicy.forbiddenPcscfPolicy,
-            ),
-            callSignalingKeepAlivePolicy = SipCallSignalingKeepAlivePolicy(
-                outgoingMode = profile.keepAliveModeMo,
-                incomingMode = profile.keepAliveModeMt,
-                intervalMs = profile.keepAliveIntervalMs?.takeIf { it > 0L }
-                    ?: base.callSignalingKeepAlivePolicy.intervalMs,
-                delayFirstPacket = mapping.canonicalMccMnc.take(3) in
-                    setOf("460", "461"),
-            ),
-            callSetupTimerPolicy = SipCallSetupTimerPolicy(
-                inviteTimeoutMs = profile.inviteTimeoutSeconds
-                    .positiveSecondsToMs()
-                    ?: base.callSetupTimerPolicy.inviteTimeoutMs,
-                ringingTimeoutMs = profile.ringingTimerSeconds
-                    .positiveSecondsToMs()
-                    ?: base.callSetupTimerPolicy.ringingTimeoutMs,
-                ringbackTimeoutMs = profile.ringbackTimerSeconds
-                    .positiveSecondsToMs()
-                    ?: base.callSetupTimerPolicy.ringbackTimeoutMs,
-            ),
-            inviteFailurePolicy = base.inviteFailurePolicy.copy(
-                csfbStatusCodes = (csfbStatusRules + voiceCsfbStatusRules)
-                    .mapNotNull(String::toIntOrNull)
-                    .toSet(),
-                csfbStatusRules = csfbStatusRules + voiceCsfbStatusRules,
-            ),
+            smsPolicy =
+                base.smsPolicy.copy(
+                    fallbackSipStatusCodes =
+                        when (defaultSmsFallbackEnabled) {
+                            false -> emptySet()
+                            else -> base.smsPolicy.fallbackSipStatusCodes
+                        },
+                ),
+            registrationRecoveryPolicy =
+                base.registrationRecoveryPolicy.copy(
+                    retryBaseMs =
+                        profile.registrationRetryBaseSeconds
+                            .positiveSecondsToMs()
+                            ?: base.registrationRecoveryPolicy.retryBaseMs,
+                    retryMaxMs =
+                        profile.registrationRetryMaxSeconds
+                            .positiveSecondsToMs()
+                            ?: base.registrationRecoveryPolicy.retryMaxMs,
+                    forbiddenPcscfPolicy =
+                        importedForbiddenPcscfPolicy(
+                            profile.registrationPcscfPolicyOn403,
+                        ) ?: base.registrationRecoveryPolicy.forbiddenPcscfPolicy,
+                ),
+            callSignalingKeepAlivePolicy =
+                SipCallSignalingKeepAlivePolicy(
+                    outgoingMode = profile.keepAliveModeMo,
+                    incomingMode = profile.keepAliveModeMt,
+                    intervalMs =
+                        profile.keepAliveIntervalMs?.takeIf { it > 0L }
+                            ?: base.callSignalingKeepAlivePolicy.intervalMs,
+                    delayFirstPacket =
+                        mapping.canonicalMccMnc.take(3) in
+                            setOf("460", "461"),
+                ),
+            callSetupTimerPolicy =
+                SipCallSetupTimerPolicy(
+                    inviteTimeoutMs =
+                        profile.inviteTimeoutSeconds
+                            .positiveSecondsToMs()
+                            ?: base.callSetupTimerPolicy.inviteTimeoutMs,
+                    ringingTimeoutMs =
+                        profile.ringingTimerSeconds
+                            .positiveSecondsToMs()
+                            ?: base.callSetupTimerPolicy.ringingTimeoutMs,
+                    ringbackTimeoutMs =
+                        profile.ringbackTimerSeconds
+                            .positiveSecondsToMs()
+                            ?: base.callSetupTimerPolicy.ringbackTimeoutMs,
+                ),
+            inviteFailurePolicy =
+                base.inviteFailurePolicy.copy(
+                    csfbStatusCodes =
+                        (csfbStatusRules + voiceCsfbStatusRules)
+                            .mapNotNull(String::toIntOrNull)
+                            .toSet(),
+                    csfbStatusRules = csfbStatusRules + voiceCsfbStatusRules,
+                ),
         )
     }
 
-    private fun Int?.positiveOr(default: Int): Int =
-        this?.takeIf { it > 0 } ?: default
+    private fun Int?.positiveOr(default: Int): Int = this?.takeIf { it > 0 } ?: default
 
-    private fun Int?.positiveSecondsToMs(): Long? =
-        this?.takeIf { it > 0 }?.times(1_000L)
+    private fun Int?.positiveSecondsToMs(): Long? = this?.takeIf { it > 0 }?.times(1_000L)
 
-    private fun importedForbiddenPcscfPolicy(
-        raw: String?,
-    ): RegistrationForbiddenPcscfPolicy? =
+    private fun importedForbiddenPcscfPolicy(raw: String?): RegistrationForbiddenPcscfPolicy? =
         RegistrationForbiddenPcscfPolicy.fromSamsung(raw)?.takeUnless {
             it == RegistrationForbiddenPcscfPolicy.PERMANENT_STOP
         }
-
 }
 
 internal object SipCarrierDatabaseSelector {
     fun select(
         mappings: List<SipCarrierDatabaseMapping>,
         query: SipCarrierDatabaseQuery,
-    ): SipCarrierDatabaseMapping? = mappings.withIndex()
-        .filter { it.value.matches(query) }
-        .maxWithOrNull(
-            compareBy<IndexedValue<SipCarrierDatabaseMapping>> { it.value.specificity }
-                .thenBy { it.index },
-        )
-        ?.value
+    ): SipCarrierDatabaseMapping? =
+        mappings
+            .withIndex()
+            .filter { it.value.matches(query) }
+            .maxWithOrNull(
+                compareBy<IndexedValue<SipCarrierDatabaseMapping>> { it.value.specificity }
+                    .thenBy { it.index },
+            )?.value
 
     fun canonicalMccMnc(raw: String): String {
         val numeric = raw.trim()

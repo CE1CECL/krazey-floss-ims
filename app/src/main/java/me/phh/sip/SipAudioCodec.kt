@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.telephony.Rlog
@@ -19,32 +19,34 @@ internal object SipAudioCodecs {
     // Current stable call path: AMR-NB, bandwidth-efficient RTP payload.
     // AMR-WB/EVS will add new codec profiles later, but should not change
     // this fallback profile's behavior.
-    val AMR_NB = NegotiatedAudioCodec(
-        name = "AMR-NB",
-        sdpCodecName = "AMR",
-        mimeType = "audio/3gpp",
-        rtpClockRate = 8000,
-        sampleRate = 8000,
-        channelCount = 1,
-        bitRate = 12200,
-        frameDurationMs = 20,
-        rtpTimestampStep = 160,
-    )
+    val AMR_NB =
+        NegotiatedAudioCodec(
+            name = "AMR-NB",
+            sdpCodecName = "AMR",
+            mimeType = "audio/3gpp",
+            rtpClockRate = 8000,
+            sampleRate = 8000,
+            channelCount = 1,
+            bitRate = 12200,
+            frameDurationMs = 20,
+            rtpTimestampStep = 160,
+        )
 
     // Future HD Voice target. This profile is intentionally not selected yet;
     // the current media path still uses AMR_NB until AMR-WB RTP payload
     // parsing/packetization is implemented and validated.
-    val AMR_WB = NegotiatedAudioCodec(
-        name = "AMR-WB",
-        sdpCodecName = "AMR-WB",
-        mimeType = "audio/amr-wb",
-        rtpClockRate = 16000,
-        sampleRate = 16000,
-        channelCount = 1,
-        bitRate = 12650,
-        frameDurationMs = 20,
-        rtpTimestampStep = 320,
-    )
+    val AMR_WB =
+        NegotiatedAudioCodec(
+            name = "AMR-WB",
+            sdpCodecName = "AMR-WB",
+            mimeType = "audio/amr-wb",
+            rtpClockRate = 16000,
+            sampleRate = 16000,
+            channelCount = 1,
+            bitRate = 12650,
+            frameDurationMs = 20,
+            rtpTimestampStep = 320,
+        )
 }
 
 internal data class RemoteAudioCodecCandidate(
@@ -58,36 +60,42 @@ internal data class RemoteAudioCodecCandidate(
 
 internal object SipAudioCodecSdpLogger {
     fun parseRemoteAudioCodecCandidates(sdp: List<String>): List<RemoteAudioCodecCandidate> {
-        val mediaPayloads = sdp.firstOrNull { it.startsWith("m=audio ") }
-            ?.split("\\s+".toRegex())
-            ?.drop(3)
-            ?.mapNotNull { it.toIntOrNull() }
-            .orEmpty()
+        val mediaPayloads =
+            sdp
+                .firstOrNull { it.startsWith("m=audio ") }
+                ?.split("\\s+".toRegex())
+                ?.drop(3)
+                ?.mapNotNull { it.toIntOrNull() }
+                .orEmpty()
         val offeredOrder = mediaPayloads.withIndex().associate { it.value to it.index }
 
-        val attributes = sdp.mapNotNull { line ->
-            when {
-                line.startsWith("a=") -> line.substring(2)
-                line.startsWith("rtpmap:", ignoreCase = true) -> line
-                line.startsWith("fmtp:", ignoreCase = true) -> line
-                else -> null
+        val attributes =
+            sdp.mapNotNull { line ->
+                when {
+                    line.startsWith("a=") -> line.substring(2)
+                    line.startsWith("rtpmap:", ignoreCase = true) -> line
+                    line.startsWith("fmtp:", ignoreCase = true) -> line
+                    else -> null
+                }
             }
-        }
-        val fmtpByPayload = attributes
-            .filter { it.startsWith("fmtp:", ignoreCase = true) }
-            .mapNotNull { fmtp ->
-                val payload = fmtp.substringAfter("fmtp:")
-                    .substringBefore(" ")
-                    .substringBefore("\t")
-                    .toIntOrNull()
-                    ?: return@mapNotNull null
-                payload to fmtp
-            }
-            .toMap()
+        val fmtpByPayload =
+            attributes
+                .filter { it.startsWith("fmtp:", ignoreCase = true) }
+                .mapNotNull { fmtp ->
+                    val payload =
+                        fmtp
+                            .substringAfter("fmtp:")
+                            .substringBefore(" ")
+                            .substringBefore("\t")
+                            .toIntOrNull()
+                            ?: return@mapNotNull null
+                    payload to fmtp
+                }.toMap()
 
-        val rtpmapRegex = "^rtpmap:(\\d+)\\s+([^/\\s]+)/(\\d+)(?:/([^\\s]+))?.*".toRegex(
-            RegexOption.IGNORE_CASE,
-        )
+        val rtpmapRegex =
+            "^rtpmap:(\\d+)\\s+([^/\\s]+)/(\\d+)(?:/([^\\s]+))?.*".toRegex(
+                RegexOption.IGNORE_CASE,
+            )
 
         return attributes
             .filter { it.startsWith("rtpmap:", ignoreCase = true) }
@@ -105,8 +113,7 @@ internal object SipAudioCodecSdpLogger {
                     fmtp = fmtpByPayload[payload].orEmpty(),
                     offeredOrder = offeredOrder[payload] ?: Int.MAX_VALUE,
                 )
-            }
-            .sortedBy { it.offeredOrder }
+            }.sortedBy { it.offeredOrder }
     }
 
     fun remoteAudioCodecCandidateRank(candidate: RemoteAudioCodecCandidate): Int {
@@ -166,8 +173,7 @@ internal object SipAudioCodecSdpLogger {
             .filter {
                 it.codec == SipAudioCodecs.AMR_WB.sdpCodecName &&
                     it.rate == SipAudioCodecs.AMR_WB.rtpClockRate
-            }
-            .minByOrNull { it.offeredOrder }
+            }.minByOrNull { it.offeredOrder }
 
     fun bestCurrentlyImplementedCandidate(sdp: List<String>): RemoteAudioCodecCandidate? =
         parseRemoteAudioCodecCandidates(sdp)
@@ -175,35 +181,42 @@ internal object SipAudioCodecSdpLogger {
                 it.codec == SipAudioCodecs.AMR_NB.sdpCodecName &&
                     it.rate == SipAudioCodecs.AMR_NB.rtpClockRate &&
                     !it.fmtp.contains("octet-align=1", ignoreCase = true)
-            }
-            .minByOrNull { it.offeredOrder }
+            }.minByOrNull { it.offeredOrder }
 
     fun widebandDiagnosticSummary(sdp: List<String>): String {
         val candidates = parseRemoteAudioCodecCandidates(sdp)
-        val amrWbCandidates = candidates.filter {
-            it.codec == SipAudioCodecs.AMR_WB.sdpCodecName &&
-                it.rate == SipAudioCodecs.AMR_WB.rtpClockRate
-        }
-        val amrNbCandidates = candidates.filter {
-            it.codec == SipAudioCodecs.AMR_NB.sdpCodecName &&
-                it.rate == SipAudioCodecs.AMR_NB.rtpClockRate
-        }
-        val telephoneEvent16000 = candidates.filter {
-            it.codec == "TELEPHONE-EVENT" &&
-                it.rate == SipAudioCodecs.AMR_WB.rtpClockRate
-        }.map { it.payload }
-        val telephoneEvent8000 = candidates.filter {
-            it.codec == "TELEPHONE-EVENT" &&
-                it.rate == SipAudioCodecs.AMR_NB.rtpClockRate
-        }.map { it.payload }
+        val amrWbCandidates =
+            candidates.filter {
+                it.codec == SipAudioCodecs.AMR_WB.sdpCodecName &&
+                    it.rate == SipAudioCodecs.AMR_WB.rtpClockRate
+            }
+        val amrNbCandidates =
+            candidates.filter {
+                it.codec == SipAudioCodecs.AMR_NB.sdpCodecName &&
+                    it.rate == SipAudioCodecs.AMR_NB.rtpClockRate
+            }
+        val telephoneEvent16000 =
+            candidates
+                .filter {
+                    it.codec == "TELEPHONE-EVENT" &&
+                        it.rate == SipAudioCodecs.AMR_WB.rtpClockRate
+                }.map { it.payload }
+        val telephoneEvent8000 =
+            candidates
+                .filter {
+                    it.codec == "TELEPHONE-EVENT" &&
+                        it.rate == SipAudioCodecs.AMR_NB.rtpClockRate
+                }.map { it.payload }
 
-        val hasBandwidthEfficientAmrWb = amrWbCandidates.any {
-            !it.fmtp.contains("octet-align=1", ignoreCase = true)
-        }
-        val amrWbOctetAlignOnly = amrWbCandidates.isNotEmpty() &&
-            amrWbCandidates.none {
+        val hasBandwidthEfficientAmrWb =
+            amrWbCandidates.any {
                 !it.fmtp.contains("octet-align=1", ignoreCase = true)
             }
+        val amrWbOctetAlignOnly =
+            amrWbCandidates.isNotEmpty() &&
+                amrWbCandidates.none {
+                    !it.fmtp.contains("octet-align=1", ignoreCase = true)
+                }
 
         return "amrWbPayloads=${amrWbCandidates.map { it.payload }} " +
             "amrWbBandwidthEfficient=$hasBandwidthEfficientAmrWb " +
@@ -213,28 +226,32 @@ internal object SipAudioCodecSdpLogger {
             "telephoneEvent8000=$telephoneEvent8000"
     }
 
-    fun logRemoteAudioCodecCandidates(tag: String, context: String, sdp: List<String>) {
+    fun logRemoteAudioCodecCandidates(
+        tag: String,
+        context: String,
+        sdp: List<String>,
+    ) {
         val candidates = parseRemoteAudioCodecCandidates(sdp)
         if (candidates.isEmpty()) {
             Rlog.w(tag, "$context remote audio codec candidates: none parsed from SDP")
             return
         }
 
-        val implementedNowPayloads = candidates
-            .filter {
-                it.codec == "AMR" &&
-                    it.rate == 8000 &&
-                    !it.fmtp.contains("octet-align=1", ignoreCase = true)
-            }
-            .map { it.payload }
+        val implementedNowPayloads =
+            candidates
+                .filter {
+                    it.codec == "AMR" &&
+                        it.rate == 8000 &&
+                        !it.fmtp.contains("octet-align=1", ignoreCase = true)
+                }.map { it.payload }
 
-        val futureRanked = candidates
-            .sortedWith(
-                compareByDescending<RemoteAudioCodecCandidate> {
-                    remoteAudioCodecCandidateRank(it)
-                }.thenBy { it.offeredOrder },
-            )
-            .joinToString(" | ") { describeRemoteAudioCodecCandidate(it) }
+        val futureRanked =
+            candidates
+                .sortedWith(
+                    compareByDescending<RemoteAudioCodecCandidate> {
+                        remoteAudioCodecCandidateRank(it)
+                    }.thenBy { it.offeredOrder },
+                ).joinToString(" | ") { describeRemoteAudioCodecCandidate(it) }
 
         val bestWideband = bestKnownWidebandCandidate(sdp)
         val bestImplemented = bestCurrentlyImplementedCandidate(sdp)

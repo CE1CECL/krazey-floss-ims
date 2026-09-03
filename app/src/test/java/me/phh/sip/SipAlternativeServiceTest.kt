@@ -4,7 +4,10 @@ package me.phh.sip
 import org.junit.Test
 
 class SipAlternativeServiceTest {
-    private fun response(body: String, contact: String? = null) = SipResponse(
+    private fun response(
+        body: String,
+        contact: String? = null,
+    ) = SipResponse(
         statusCode = 380,
         statusString = "Alternative Service",
         headersParam = contact?.let { mapOf("contact" to listOf(it)) }.orEmpty(),
@@ -13,18 +16,19 @@ class SipAlternativeServiceTest {
 
     @Test
     fun `parses emergency registration and service URN`() {
-        val parsed = SipAlternativeServiceParser.parse(
-            response(
-                """
-                <ims-3gpp><alternative-service>
-                  <type>emergency</type>
-                  <reason>Emergency &amp; retry</reason>
-                  <action>emergency-registration</action>
-                </alternative-service></ims-3gpp>
-                """.trimIndent(),
-                "<urn:service:sos.police>",
-            ),
-        ) ?: error("Alternative-Service was not parsed")
+        val parsed =
+            SipAlternativeServiceParser.parse(
+                response(
+                    """
+                    <ims-3gpp><alternative-service>
+                      <type>emergency</type>
+                      <reason>Emergency &amp; retry</reason>
+                      <action>emergency-registration</action>
+                    </alternative-service></ims-3gpp>
+                    """.trimIndent(),
+                    "<urn:service:sos.police>",
+                ),
+            ) ?: error("Alternative-Service was not parsed")
 
         require(parsed.action == SipAlternativeServiceAction.EMERGENCY_REGISTRATION)
         require(parsed.requiresImsRetry)
@@ -34,12 +38,13 @@ class SipAlternativeServiceTest {
 
     @Test
     fun `missing action requests emergency CS fallback`() {
-        val parsed = SipAlternativeServiceParser.parse(
-            response(
-                "<ims-3gpp><alternative-service><type>emergency</type>" +
-                    "</alternative-service></ims-3gpp>",
-            ),
-        ) ?: error("Alternative-Service was not parsed")
+        val parsed =
+            SipAlternativeServiceParser.parse(
+                response(
+                    "<ims-3gpp><alternative-service><type>emergency</type>" +
+                        "</alternative-service></ims-3gpp>",
+                ),
+            ) ?: error("Alternative-Service was not parsed")
 
         require(parsed.action == SipAlternativeServiceAction.EMERGENCY)
         require(!parsed.requiresImsRetry)

@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.telephony.PhoneNumberUtils
@@ -33,7 +33,8 @@ object OutgoingDialTargetNormalizer {
         // (for example 0049...). IMS cores behave more consistently with +E.164.
         if (stripped.startsWith("00") &&
             stripped.length > 2 &&
-            stripped.drop(2).all { it.isDigit() }) {
+            stripped.drop(2).all { it.isDigit() }
+        ) {
             return "+" + stripped.drop(2)
         }
 
@@ -41,11 +42,12 @@ object OutgoingDialTargetNormalizer {
             return stripped
         }
 
-        val countryIso = listOf(
-            activeSubscription.countryIso,
-            telephonyManager.simCountryIso,
-            telephonyManager.networkCountryIso,
-        ).firstOrNull { !it.isNullOrBlank() }
+        val countryIso =
+            listOf(
+                activeSubscription.countryIso,
+                telephonyManager.simCountryIso,
+                telephonyManager.networkCountryIso,
+            ).firstOrNull { !it.isNullOrBlank() }
 
         carrierSettings?.normalizePublicNumberToE164(stripped)?.let { e164 ->
             Rlog.d(
@@ -63,9 +65,10 @@ object OutgoingDialTargetNormalizer {
             return stripped
         }
 
-        val e164 = countryIso?.let { iso ->
-            PhoneNumberUtils.formatNumberToE164(stripped, iso.uppercase())
-        }
+        val e164 =
+            countryIso?.let { iso ->
+                PhoneNumberUtils.formatNumberToE164(stripped, iso.uppercase())
+            }
 
         if (e164 == null) {
             Rlog.w(
@@ -78,5 +81,4 @@ object OutgoingDialTargetNormalizer {
 
         return e164
     }
-
 }

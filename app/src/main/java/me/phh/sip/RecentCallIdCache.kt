@@ -12,7 +12,10 @@ internal class RecentCallIdCache(
 ) {
     private val entries = ConcurrentHashMap<String, Long>()
 
-    fun remember(callId: String, reason: String) {
+    fun remember(
+        callId: String,
+        reason: String,
+    ) {
         if (callId.isBlank()) return
 
         entries[callId] = SystemClock.elapsedRealtime()

@@ -1,12 +1,12 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
-import java.net.InetAddress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.net.InetAddress
 
 class SipUdpResponseRoutingTest {
     private val packetSource = InetAddress.getByName("2001:db8::20")
@@ -42,25 +42,28 @@ class SipUdpResponseRoutingTest {
 
     @Test
     fun `local request bypasses response routing`() {
-        val bytes = (
-            "BYE sip:user@example.com SIP/2.0\r\n" +
-                "Via: SIP/2.0/UDP [2001:db8::30]:5067;branch=z9\r\n" +
-                "Content-Length: 0\r\n\r\n"
+        val bytes =
+            (
+                "BYE sip:user@example.com SIP/2.0\r\n" +
+                    "Via: SIP/2.0/UDP [2001:db8::30]:5067;branch=z9\r\n" +
+                    "Content-Length: 0\r\n\r\n"
             ).toByteArray(Charsets.US_ASCII)
-        val route = SipUdpResponseRouting.routeIfResponse(
-            messageBytes = bytes,
-            sourceAddress = packetSource,
-            sourcePort = 32922,
-        )
+        val route =
+            SipUdpResponseRouting.routeIfResponse(
+                messageBytes = bytes,
+                sourceAddress = packetSource,
+                sourcePort = 32922,
+            )
 
         assertNull(route)
     }
 
     @Test
     fun `received parameter overrides Via host but retains sent-by port`() {
-        val route = route(
-            "SIP/2.0/UDP proxy.example:5070;branch=z9;received=2001:db8::40",
-        )
+        val route =
+            route(
+                "SIP/2.0/UDP proxy.example:5070;branch=z9;received=2001:db8::40",
+            )
 
         assertEquals("2001:db8::40", route.destinationHost)
         assertEquals(5070, route.destinationPort)
@@ -78,10 +81,11 @@ class SipUdpResponseRoutingTest {
 
     @Test
     fun `compact Via header is routed`() {
-        val bytes = (
-            "SIP/2.0 200 OK\r\n" +
-                "v: SIP/2.0/UDP proxy.example:5080;branch=z9\r\n" +
-                "Content-Length: 0\r\n\r\n"
+        val bytes =
+            (
+                "SIP/2.0 200 OK\r\n" +
+                    "v: SIP/2.0/UDP proxy.example:5080;branch=z9\r\n" +
+                    "Content-Length: 0\r\n\r\n"
             ).toByteArray(Charsets.US_ASCII)
         val route = SipUdpResponseRouting.route(bytes, packetSource, 32922)
 
@@ -89,8 +93,7 @@ class SipUdpResponseRoutingTest {
         assertEquals(5080, route.destinationPort)
     }
 
-    private fun route(via: String): SipUdpResponseRoute =
-        SipUdpResponseRouting.route(response(via), packetSource, 32922)
+    private fun route(via: String): SipUdpResponseRoute = SipUdpResponseRouting.route(response(via), packetSource, 32922)
 
     private fun response(via: String?): ByteArray {
         val viaHeader = via?.let { "Via: $it\r\n" }.orEmpty()
@@ -99,6 +102,6 @@ class SipUdpResponseRoutingTest {
                 viaHeader +
                 "Call-ID: test\r\n" +
                 "Content-Length: 0\r\n\r\n"
-            ).toByteArray(Charsets.US_ASCII)
+        ).toByteArray(Charsets.US_ASCII)
     }
 }

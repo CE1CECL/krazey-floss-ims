@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import java.io.BufferedInputStream
@@ -9,7 +9,9 @@ import java.io.PushbackInputStream
 
 internal const val SIP_MAX_HEADER_LINE_BYTES = 8 * 1024
 
-internal class SipParseException(message: String) : IOException(message)
+internal class SipParseException(
+    message: String,
+) : IOException(message)
 
 fun InputStream.sipReader(): SipReader = SipReader(this)
 
@@ -20,13 +22,18 @@ fun InputStream.sipReader(): SipReader = SipReader(this)
  * safely frame a message. A one-byte pushback buffer is enough to inspect the
  * first byte of the next physical line while unfolding legacy header lines.
  */
-class SipReader(input: InputStream) : InputStream() {
+class SipReader(
+    input: InputStream,
+) : InputStream() {
     private val input = PushbackInputStream(BufferedInputStream(input), 1)
 
     override fun read(): Int = input.read()
 
-    override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
-        input.read(buffer, offset, length)
+    override fun read(
+        buffer: ByteArray,
+        offset: Int,
+        length: Int,
+    ): Int = input.read(buffer, offset, length)
 
     override fun close() = input.close()
 
@@ -38,7 +45,11 @@ class SipReader(input: InputStream) : InputStream() {
                     if (line.size() == 0) return null
                     throw SipParseException("SIP line ended before CRLF")
                 }
-                '\n'.code -> break
+
+                '\n'.code -> {
+                    break
+                }
+
                 else -> {
                     if (line.size() >= SIP_MAX_HEADER_LINE_BYTES) {
                         throw SipParseException(
@@ -86,8 +97,9 @@ class SipReader(input: InputStream) : InputStream() {
                 throw SipParseException("SIP continuation ended before CRLF")
             }
             input.unread(next)
-            val continuation = readPhysicalLine()
-                ?: throw SipParseException("SIP continuation ended before CRLF")
+            val continuation =
+                readPhysicalLine()
+                    ?: throw SipParseException("SIP continuation ended before CRLF")
 
             if (unfolded.size() + 1 + continuation.size > SIP_MAX_HEADER_LINE_BYTES) {
                 throw SipParseException(
@@ -122,22 +134,25 @@ class SipReader(input: InputStream) : InputStream() {
 // lineSequence copied from kotlin sources and adapted to SipReader.
 fun SipReader.lineSequence(): Sequence<String> = LinesSequence(this).constrainOnce()
 
-private class LinesSequence(private val reader: SipReader) : Sequence<String> {
-    override fun iterator(): Iterator<String> = object : Iterator<String> {
-        private var nextValue: String? = null
-        private var done = false
+private class LinesSequence(
+    private val reader: SipReader,
+) : Sequence<String> {
+    override fun iterator(): Iterator<String> =
+        object : Iterator<String> {
+            private var nextValue: String? = null
+            private var done = false
 
-        override fun hasNext(): Boolean {
-            if (nextValue == null && !done) {
-                nextValue = reader.readLine()
-                if (nextValue == null) done = true
+            override fun hasNext(): Boolean {
+                if (nextValue == null && !done) {
+                    nextValue = reader.readLine()
+                    if (nextValue == null) done = true
+                }
+                return nextValue != null
             }
-            return nextValue != null
-        }
 
-        override fun next(): String {
-            if (!hasNext()) throw NoSuchElementException()
-            return nextValue!!.also { nextValue = null }
+            override fun next(): String {
+                if (!hasNext()) throw NoSuchElementException()
+                return nextValue!!.also { nextValue = null }
+            }
         }
-    }
 }

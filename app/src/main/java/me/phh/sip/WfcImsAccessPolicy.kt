@@ -25,28 +25,31 @@ internal object WfcImsAccessPolicy {
                 "convergenceWindow=$convergenceWindow"
     }
 
-    fun isWifiOnly(enabled: Boolean?, mode: Int?): Boolean =
-        enabled == true && mode == WIFI_MODE_WIFI_ONLY
+    fun isWifiOnly(
+        enabled: Boolean?,
+        mode: Int?,
+    ): Boolean = enabled == true && mode == WIFI_MODE_WIFI_ONLY
 
-    fun isWifiPreferredOrOnly(enabled: Boolean?, mode: Int?): Boolean {
+    fun isWifiPreferredOrOnly(
+        enabled: Boolean?,
+        mode: Int?,
+    ): Boolean {
         val currentMode = mode ?: return false
         return enabled == true && currentMode != WIFI_MODE_CELLULAR_PREFERRED
     }
 
-    private fun isWifiOnlyOrPreferredMode(mode: Int?): Boolean =
-        mode == WIFI_MODE_WIFI_ONLY || mode == WIFI_MODE_WIFI_PREFERRED
+    private fun isWifiOnlyOrPreferredMode(mode: Int?): Boolean = mode == WIFI_MODE_WIFI_ONLY || mode == WIFI_MODE_WIFI_PREFERRED
 
     fun shouldSkipReconnectForWifiModeOnlyChange(
         oldMode: Int?,
         newMode: Int?,
         imsReady: Boolean,
         registeredOverIwlan: Boolean,
-    ): Boolean {
-        return isWifiOnlyOrPreferredMode(oldMode) &&
+    ): Boolean =
+        isWifiOnlyOrPreferredMode(oldMode) &&
             isWifiOnlyOrPreferredMode(newMode) &&
             imsReady &&
             registeredOverIwlan
-    }
 
     fun isWaitingForRequiredAccessAfterWfcChange(
         convergenceWindow: Boolean,

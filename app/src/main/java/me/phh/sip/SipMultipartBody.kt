@@ -2,7 +2,10 @@
 package me.phh.sip
 
 internal object SipMultipartBody {
-    fun isContentType(contentType: String?, expectedType: String): Boolean =
+    fun isContentType(
+        contentType: String?,
+        expectedType: String,
+    ): Boolean =
         contentType
             ?.substringBefore(';')
             ?.trim()
@@ -14,12 +17,16 @@ internal object SipMultipartBody {
             ?.trim()
             ?.startsWith("multipart/", ignoreCase = true) == true
 
-    fun bodyContainsContentType(body: ByteArray, expectedPartContentType: String): Boolean {
+    fun bodyContainsContentType(
+        body: ByteArray,
+        expectedPartContentType: String,
+    ): Boolean {
         val bodyText = body.toString(Charsets.ISO_8859_1)
         return bodyText
             .lineSequence()
             .any { line ->
-                line.substringBefore(':')
+                line
+                    .substringBefore(':')
                     .trim()
                     .equals("content-type", ignoreCase = true) &&
                     isContentType(line.substringAfter(':').trim(), expectedPartContentType)
@@ -35,11 +42,12 @@ internal object SipMultipartBody {
         val boundaries = candidateBoundaries(contentType, bodyText)
 
         for (boundary in boundaries) {
-            val extracted = extractPartBodyWithBoundary(
-                bodyText = bodyText,
-                boundary = boundary,
-                expectedPartContentType = expectedPartContentType,
-            )
+            val extracted =
+                extractPartBodyWithBoundary(
+                    bodyText = bodyText,
+                    boundary = boundary,
+                    expectedPartContentType = expectedPartContentType,
+                )
             if (extracted != null) return extracted
         }
 
@@ -61,17 +69,18 @@ internal object SipMultipartBody {
             val (headerEnd, separatorLength) = headerBodySeparator(part) ?: continue
             val headerBlock = part.substring(0, headerEnd)
             val partBody = part.substring(headerEnd + separatorLength)
-            val partContentType = headerBlock
-                .lineSequence()
-                .firstNotNullOfOrNull { line ->
-                    val name = line.substringBefore(':').trim()
-                    if (name.equals("content-type", ignoreCase = true)) {
-                        line.substringAfter(':').trim()
-                    } else {
-                        null
+            val partContentType =
+                headerBlock
+                    .lineSequence()
+                    .firstNotNullOfOrNull { line ->
+                        val name = line.substringBefore(':').trim()
+                        if (name.equals("content-type", ignoreCase = true)) {
+                            line.substringAfter(':').trim()
+                        } else {
+                            null
+                        }
                     }
-                }
-                ?: continue
+                    ?: continue
 
             if (isContentType(partContentType, expectedPartContentType)) {
                 return partBody
@@ -83,7 +92,10 @@ internal object SipMultipartBody {
         return null
     }
 
-    private fun candidateBoundaries(contentType: String?, bodyText: String): List<String> =
+    private fun candidateBoundaries(
+        contentType: String?,
+        bodyText: String,
+    ): List<String> =
         buildList {
             boundaryFromContentType(contentType)?.let { add(it) }
 
@@ -109,8 +121,7 @@ internal object SipMultipartBody {
                 } else {
                     null
                 }
-            }
-            ?.firstOrNull()
+            }?.firstOrNull()
 
     private fun headerBodySeparator(part: String): Pair<Int, Int>? {
         val crlf = part.indexOf("\r\n\r\n")

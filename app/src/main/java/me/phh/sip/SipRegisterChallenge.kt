@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 data class SipRegisterChallenge(
@@ -9,7 +9,10 @@ data class SipRegisterChallenge(
 )
 
 object SipRegisterChallengeParser {
-    fun parse(response: SipResponse, fallbackRealm: String): SipRegisterChallenge {
+    fun parse(
+        response: SipResponse,
+        fallbackRealm: String,
+    ): SipRegisterChallenge {
         val (wwwAuthenticateType, wwwAuthenticateParams) =
             response.headers["www-authenticate"]!![0].getAuthValues()
         require(wwwAuthenticateType == "Digest")

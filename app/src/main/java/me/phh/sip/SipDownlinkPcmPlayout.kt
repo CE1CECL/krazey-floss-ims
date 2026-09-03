@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.media.AudioTrack
@@ -17,7 +17,10 @@ internal object SipDownlinkPcmPlayout {
     private const val DOWNLINK_ADAPTIVE_REBUFFER_MAX_SILENCE_FRAMES = 4
     private const val DOWNLINK_ADAPTIVE_REBUFFER_TRIGGER_FRAMES = 12
 
-    private fun attenuatePcm16LeFrame(frame: ByteArray, gainShift: Int): ByteArray {
+    private fun attenuatePcm16LeFrame(
+        frame: ByteArray,
+        gainShift: Int,
+    ): ByteArray {
         val out = ByteArray(frame.size)
         var i = 0
         while (i + 1 < frame.size) {
@@ -37,7 +40,6 @@ internal object SipDownlinkPcmPlayout {
         audioTrack: AudioTrack,
         audioCodec: NegotiatedAudioCodec,
         buffers: SipDownlinkPcmPlayoutBuffers,
-        echoCancellation: SipEchoCancellationSession,
         callStopped: AtomicBoolean,
         callGeneration: AtomicInteger,
         generation: Int,
@@ -61,7 +63,10 @@ internal object SipDownlinkPcmPlayout {
             var adaptiveRebufferWaitFrames = 0
             var lastGoodPcmFrame: ByteArray? = null
             var nextWriteAtMs = SystemClock.elapsedRealtime() + 60L
-            Rlog.d(logTag, "Downlink PCM playout started: frameBytes=${buffers.frameBytes} codec=${audioCodec.name}/${audioCodec.sampleRate} gen=$generation")
+            Rlog.d(
+                logTag,
+                "Downlink PCM playout started: frameBytes=${buffers.frameBytes} codec=${audioCodec.name}/${audioCodec.sampleRate} gen=$generation",
+            )
             try {
                 while (buffers.running.get() && !callStopped.get() && callGeneration.get() == generation) {
                     val now = SystemClock.elapsedRealtime()
@@ -89,9 +94,11 @@ internal object SipDownlinkPcmPlayout {
                     var holdForRebuffer = false
                     if (startupRebuffering) {
                         holdForRebuffer = !startupRebufferPcmSeen ||
-                            (queuedBeforePoll < DOWNLINK_STARTUP_REBUFFER_FRAMES &&
-                                startupRebufferWaitFrames <
-                                DOWNLINK_STARTUP_REBUFFER_MAX_SILENCE_FRAMES)
+                            (
+                                queuedBeforePoll < DOWNLINK_STARTUP_REBUFFER_FRAMES &&
+                                    startupRebufferWaitFrames <
+                                    DOWNLINK_STARTUP_REBUFFER_MAX_SILENCE_FRAMES
+                            )
                         if (holdForRebuffer) {
                             if (startupRebufferPcmSeen) startupRebufferWaitFrames++
                         } else {
@@ -105,9 +112,11 @@ internal object SipDownlinkPcmPlayout {
                         }
                     } else if (adaptiveRebuffering) {
                         holdForRebuffer = !adaptiveRebufferPcmSeen ||
-                            (queuedBeforePoll < DOWNLINK_ADAPTIVE_REBUFFER_FRAMES &&
-                                adaptiveRebufferWaitFrames <
-                                DOWNLINK_ADAPTIVE_REBUFFER_MAX_SILENCE_FRAMES)
+                            (
+                                queuedBeforePoll < DOWNLINK_ADAPTIVE_REBUFFER_FRAMES &&
+                                    adaptiveRebufferWaitFrames <
+                                    DOWNLINK_ADAPTIVE_REBUFFER_MAX_SILENCE_FRAMES
+                            )
                         if (holdForRebuffer) {
                             if (adaptiveRebufferPcmSeen) adaptiveRebufferWaitFrames++
                         } else {
@@ -127,8 +136,8 @@ internal object SipDownlinkPcmPlayout {
                             realFramesSinceLastUnderrun++
                             if (
                                 !startupConcealmentPrimed &&
-                                    realFramesSinceLastUnderrun >=
-                                    DOWNLINK_STARTUP_CONCEALMENT_PRIME_FRAMES
+                                realFramesSinceLastUnderrun >=
+                                DOWNLINK_STARTUP_CONCEALMENT_PRIME_FRAMES
                             ) {
                                 startupConcealmentPrimed = true
                                 Rlog.d(
@@ -147,8 +156,8 @@ internal object SipDownlinkPcmPlayout {
                             val last = lastGoodPcmFrame
                             if (
                                 startupConcealmentPrimed &&
-                                    last != null &&
-                                    fillerFrames < DOWNLINK_UNDERRUN_CONCEALMENT_FRAMES
+                                last != null &&
+                                fillerFrames < DOWNLINK_UNDERRUN_CONCEALMENT_FRAMES
                             ) {
                                 attenuatePcm16LeFrame(
                                     last,
@@ -170,14 +179,17 @@ internal object SipDownlinkPcmPlayout {
                                 )
                             }
                         } else if (fillerFrames == 1 || fillerFrames % 50 == 0) {
-                            Rlog.d(logTag, "Downlink PCM playout filler frames=$fillerFrames queued=${buffers.pcmQueue.size} gen=$generation")
+                            Rlog.d(
+                                logTag,
+                                "Downlink PCM playout filler frames=$fillerFrames queued=${buffers.pcmQueue.size} gen=$generation",
+                            )
                         }
                         if (
                             !startupRebuffering &&
-                                !adaptiveRebuffering &&
-                                startupConcealmentPrimed &&
-                                fillerFrames == DOWNLINK_ADAPTIVE_REBUFFER_TRIGGER_FRAMES &&
-                                buffers.pcmQueue.size == 0
+                            !adaptiveRebuffering &&
+                            startupConcealmentPrimed &&
+                            fillerFrames == DOWNLINK_ADAPTIVE_REBUFFER_TRIGGER_FRAMES &&
+                            buffers.pcmQueue.size == 0
                         ) {
                             adaptiveRebuffering = true
                             adaptiveRebufferPcmSeen = false
@@ -192,21 +204,21 @@ internal object SipDownlinkPcmPlayout {
                             )
                         }
                     } else if (fillerFrames > 0) {
-                        Rlog.d(logTag, "Downlink PCM playout recovered after fillerFrames=$fillerFrames queued=${buffers.pcmQueue.size} gen=$generation")
+                        Rlog.d(
+                            logTag,
+                            "Downlink PCM playout recovered after fillerFrames=$fillerFrames queued=${buffers.pcmQueue.size} gen=$generation",
+                        )
                         fillerFrames = 0
                     }
 
-                    echoCancellation.processRender(
-                        pcm = pcm,
-                        generation = generation,
-                    )
                     val writeStartedAtMs = SystemClock.elapsedRealtime()
-                    val written = audioTrack.write(
-                        pcm,
-                        0,
-                        pcm.size,
-                        AudioTrack.WRITE_BLOCKING,
-                    )
+                    val written =
+                        audioTrack.write(
+                            pcm,
+                            0,
+                            pcm.size,
+                            AudioTrack.WRITE_BLOCKING,
+                        )
                     if (written < 0) {
                         Rlog.w(logTag, "Downlink AudioTrack write failed: error=$written")
                     } else if (written != pcm.size) {
@@ -220,16 +232,20 @@ internal object SipDownlinkPcmPlayout {
                     // Do not replay missed deadlines back-to-back. AEC or
                     // scheduler stalls can otherwise drain the jitter queue in
                     // a burst and create artificial underruns on the next pass.
-                    nextWriteAtMs = maxOf(
-                        nextWriteAtMs + 20L,
-                        writeStartedAtMs + 20L,
-                    )
+                    nextWriteAtMs =
+                        maxOf(
+                            nextWriteAtMs + 20L,
+                            writeStartedAtMs + 20L,
+                        )
                 }
             } catch (_: InterruptedException) {
                 // Normal during call teardown.
             } catch (t: Throwable) {
                 Rlog.w(logTag, "Downlink PCM playout failed", t)
             }
-            Rlog.d(logTag, "Downlink PCM playout exiting: running=${buffers.running.get()} callStopped=${callStopped.get()} genMismatch=${callGeneration.get() != generation} queued=${buffers.pcmQueue.size}")
+            Rlog.d(
+                logTag,
+                "Downlink PCM playout exiting: running=${buffers.running.get()} callStopped=${callStopped.get()} genMismatch=${callGeneration.get() != generation} queued=${buffers.pcmQueue.size}",
+            )
         }
 }

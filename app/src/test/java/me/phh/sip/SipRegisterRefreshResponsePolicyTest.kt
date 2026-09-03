@@ -1,15 +1,16 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class SipRegisterRefreshResponsePolicyTest {
-    private fun response(retryAfter: String? = null): SipResponse = SipResponse(
-        503,
-        "Service Unavailable",
-        retryAfter?.let { mapOf("retry-after" to listOf(it)) }.orEmpty(),
-    )
+    private fun response(retryAfter: String? = null): SipResponse =
+        SipResponse(
+            503,
+            "Service Unavailable",
+            retryAfter?.let { mapOf("retry-after" to listOf(it)) }.orEmpty(),
+        )
 
     @Test
     fun `successful refresh updates registration`() {

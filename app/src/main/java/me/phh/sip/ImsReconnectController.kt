@@ -41,7 +41,10 @@ internal class ImsReconnectController(
 
     fun isReconnecting(): Boolean = reconnecting.get()
 
-    fun scheduleReconnectRetry(reason: String, delayMs: Long) {
+    fun scheduleReconnectRetry(
+        reason: String,
+        delayMs: Long,
+    ) {
         val retryNetwork = currentNetwork()
         if (retryNetwork == null) {
             Rlog.w(tag, "Cannot schedule IMS reconnect retry without a Network: $reason")
@@ -90,9 +93,11 @@ internal class ImsReconnectController(
         explicitDelayMs: Long? = null,
     ) {
         val failures = failureCount.incrementAndGet().coerceAtMost(6)
-        val exponentialDelayMs = baseDelayMs.coerceAtLeast(1L)
-            .times(1L shl (failures - 1))
-            .coerceAtMost(maxDelayMs.coerceAtLeast(1L))
+        val exponentialDelayMs =
+            baseDelayMs
+                .coerceAtLeast(1L)
+                .times(1L shl (failures - 1))
+                .coerceAtMost(maxDelayMs.coerceAtLeast(1L))
         val delayMs = explicitDelayMs?.coerceAtLeast(0L) ?: exponentialDelayMs
 
         Rlog.w(tag, "$reason; reporting deregistered and retrying IMS registration in ${delayMs}ms")
@@ -100,13 +105,18 @@ internal class ImsReconnectController(
         scheduleReconnectRetry(reason, delayMs)
     }
 
-    fun reconnectIms(reason: String, newNetwork: Network? = null, delayMs: Long = 1000L) {
-        val request = PendingReconnectRequest(
-            reason = reason,
-            newNetwork = newNetwork,
-            delayMs = delayMs,
-            generation = generation.incrementAndGet(),
-        )
+    fun reconnectIms(
+        reason: String,
+        newNetwork: Network? = null,
+        delayMs: Long = 1000L,
+    ) {
+        val request =
+            PendingReconnectRequest(
+                reason = reason,
+                newNetwork = newNetwork,
+                delayMs = delayMs,
+                generation = generation.incrementAndGet(),
+            )
 
         synchronized(pendingLock) {
             pendingRequest = request
@@ -119,19 +129,17 @@ internal class ImsReconnectController(
         startReconnectWorkerIfNeeded()
     }
 
-    private fun takePendingReconnectRequest(): PendingReconnectRequest? {
-        return synchronized(pendingLock) {
+    private fun takePendingReconnectRequest(): PendingReconnectRequest? =
+        synchronized(pendingLock) {
             val request = pendingRequest
             pendingRequest = null
             request
         }
-    }
 
-    private fun hasPendingReconnectRequest(): Boolean {
-        return synchronized(pendingLock) {
+    private fun hasPendingReconnectRequest(): Boolean =
+        synchronized(pendingLock) {
             pendingRequest != null
         }
-    }
 
     private fun startReconnectWorkerIfNeeded() {
         if (!reconnecting.compareAndSet(false, true)) {

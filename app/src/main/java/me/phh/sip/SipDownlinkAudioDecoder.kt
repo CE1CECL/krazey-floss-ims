@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.media.MediaCodec
@@ -29,9 +29,10 @@ internal class SipDownlinkAudioDecoderWorker(
     private val encodedDropCount = AtomicInteger(0)
     private val decoderInputDropCount = AtomicInteger(0)
 
-    private val workerThread = thread(name = "PhhDownlinkAudioDecoder") {
-        runDecoderLoop()
-    }
+    private val workerThread =
+        thread(name = "PhhDownlinkAudioDecoder") {
+            runDecoderLoop()
+        }
 
     fun offer(codecFrame: ByteArray) {
         if (!running.get()) return
@@ -115,17 +116,19 @@ internal class SipDownlinkAudioDecoderWorker(
         try {
             while (
                 running.get() &&
-                    !callStopped.get() &&
-                    callGeneration.get() == generation
+                !callStopped.get() &&
+                callGeneration.get() == generation
             ) {
                 drainDecoderOutput(firstTimeoutUs = 0L)
 
-                val codecFrame = encodedQueue.poll(10L, TimeUnit.MILLISECONDS)
-                    ?: continue
+                val codecFrame =
+                    encodedQueue.poll(10L, TimeUnit.MILLISECONDS)
+                        ?: continue
 
-                val inBufIndex = decoder.dequeueInputBuffer(
-                    DECODER_INPUT_TIMEOUT_US,
-                )
+                val inBufIndex =
+                    decoder.dequeueInputBuffer(
+                        DECODER_INPUT_TIMEOUT_US,
+                    )
                 if (inBufIndex < 0) {
                     val dropped = decoderInputDropCount.incrementAndGet()
                     if (dropped <= 5 || dropped % 50 == 0) {

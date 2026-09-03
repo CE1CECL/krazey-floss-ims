@@ -20,26 +20,30 @@ internal object SipOutgoingInviteFinalAck {
         val newTo = response.headers["to"]!![0]
         val newFrom = response.headers["from"]!![0]
         // ACK to 2xx must be sent to the Contact from the response (RFC 3261 §13.2.2.4).
-        val ackTo = response.headers["contact"]?.get(0)
-            ?.let { extractDestinationFromContact(it) } ?: fallbackTarget
+        val ackTo =
+            response.headers["contact"]
+                ?.get(0)
+                ?.let { extractDestinationFromContact(it) } ?: fallbackTarget
         // ACK is a dialog request; route set comes from Record-Route in the 200 OK
         // (RFC 3261 §12.1.2), not from the registration Service-Route in myHeaders.
         val dialogRoute = outgoingDialogRouteSet(response.headers)
         val dialogHeaders = myHeaders - "route" - "record-route"
-        val ackHeaders = if (dialogRoute.isNotEmpty()) {
-            dialogHeaders + ("route" to dialogRoute)
-        } else {
-            dialogHeaders
-        }
+        val ackHeaders =
+            if (dialogRoute.isNotEmpty()) {
+                dialogHeaders + ("route" to dialogRoute)
+            } else {
+                dialogHeaders
+            }
         val request =
             SipRequest(
                 SipMethod.ACK,
                 ackTo,
-                ackHeaders - "content-type" + """
+                ackHeaders - "content-type" +
+                    """
                     CSeq: $cseq ACK
                     To: $newTo
                     From: $newFrom
-                    """.toSipHeadersMap()
+                    """.toSipHeadersMap(),
             )
 
         return OutgoingFinalInviteAckRequest(
@@ -57,29 +61,22 @@ internal data class OutgoingFinalInviteAckState(
 )
 
 internal object SipOutgoingInviteFinalAckState {
-
     fun finalInviteAfterLocalCancelWithoutSdpLog(callId: String): String =
         "Confirmed outgoing dialog after local CANCEL without final SDP; sending BYE immediately callId=$callId"
 
-    fun finalAnswerWithoutSdpAfterLocalCancelReason(): String =
-        "final answer without SDP after local CANCEL"
+    fun finalAnswerWithoutSdpAfterLocalCancelReason(): String = "final answer without SDP after local CANCEL"
 
-    fun finalInviteAnswerWithoutSdpReason(): String =
-        "final INVITE answer without SDP"
+    fun finalInviteAnswerWithoutSdpReason(): String = "final INVITE answer without SDP"
 
     fun finalInviteAnswerClearsEarlyMediaGateLog(callId: String): String =
         "Final outgoing answer received; clearing early-media RTP gate until post-answer RTP arrives callId=$callId"
 
-    fun finalInviteAnswerConnectedReason(): String =
-        "final INVITE answer"
+    fun finalInviteAnswerConnectedReason(): String = "final INVITE answer"
 
     fun finalInviteAnswerCurrentCallMissingLog(callId: String): String =
         "Final INVITE answer but currentCall is null after ACK callId=$callId"
 
-
-    fun sendingFinalInviteAckLog(request: SipRequest): String =
-        "Sending ${request.safeLogSummary()}"
-
+    fun sendingFinalInviteAckLog(request: SipRequest): String = "Sending ${request.safeLogSummary()}"
 
     fun outgoingConfirmedDialogAfterAckLog(
         remoteTarget: String,

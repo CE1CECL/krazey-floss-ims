@@ -16,13 +16,19 @@ internal class SipCallSetupTimers(
     private var incomingCallId: String? = null
     private var incomingGeneration = 0
 
-    fun onOutgoingInviteResponse(callId: String, statusCode: Int) {
+    fun onOutgoingInviteResponse(
+        callId: String,
+        statusCode: Int,
+    ) {
         when {
-            statusCode == 100 -> startOutgoing(
-                callId,
-                policy().inviteTimeoutMs,
-                "INVITE response timeout",
-            )
+            statusCode == 100 -> {
+                startOutgoing(
+                    callId,
+                    policy().inviteTimeoutMs,
+                    "INVITE response timeout",
+                )
+            }
+
             statusCode == 180 -> {
                 cancelOutgoing("180 Ringing")
                 startOutgoing(
@@ -31,7 +37,10 @@ internal class SipCallSetupTimers(
                     "ringback timeout",
                 )
             }
-            statusCode > 100 -> cancelOutgoing("INVITE response $statusCode")
+
+            statusCode > 100 -> {
+                cancelOutgoing("INVITE response $statusCode")
+            }
         }
     }
 
@@ -54,7 +63,11 @@ internal class SipCallSetupTimers(
         cancelIncoming(reason)
     }
 
-    private fun startOutgoing(callId: String, delayMs: Long, reason: String) {
+    private fun startOutgoing(
+        callId: String,
+        delayMs: Long,
+        reason: String,
+    ) {
         val generation = ++outgoingGeneration
         outgoingCallId = callId
         val boundedDelayMs = delayMs.coerceAtLeast(1L)

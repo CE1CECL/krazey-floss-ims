@@ -36,13 +36,14 @@ internal class SipCallSignalingKeepAlive(
         synchronized(lock) {
             if (worker?.isAlive == true) return
             val currentGeneration = ++generation
-            worker = thread(
-                start = true,
-                isDaemon = true,
-                name = "PhhSipCallKeepAlive",
-            ) {
-                runSender(currentGeneration, reason)
-            }
+            worker =
+                thread(
+                    start = true,
+                    isDaemon = true,
+                    name = "PhhSipCallKeepAlive",
+                ) {
+                    runSender(currentGeneration, reason)
+                }
         }
     }
 
@@ -67,7 +68,10 @@ internal class SipCallSignalingKeepAlive(
         Rlog.d(tag, "Stopped SIP call-signaling keepalive: $reason")
     }
 
-    private fun runSender(currentGeneration: Long, reason: String) {
+    private fun runSender(
+        currentGeneration: Long,
+        reason: String,
+    ) {
         val selectedNetwork = network()
         val selectedAddress = remoteAddress()
         val selectedPort = remotePort()
@@ -78,10 +82,12 @@ internal class SipCallSignalingKeepAlive(
         }
 
         var openedSocket: DatagramSocket? = null
-        val runWakeLock = powerManager.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            "$tag:call-keepalive",
-        ).also { it.setReferenceCounted(false) }
+        val runWakeLock =
+            powerManager
+                .newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    "$tag:call-keepalive",
+                ).also { it.setReferenceCounted(false) }
         try {
             runWakeLock.acquire()
             val datagramSocket = openSocket(selectedNetwork)
@@ -102,12 +108,13 @@ internal class SipCallSignalingKeepAlive(
 
             if (policy.delayFirstPacket) sleepInterval()
             while (isCurrent(currentGeneration)) {
-                val packet = DatagramPacket(
-                    PAYLOAD,
-                    PAYLOAD.size,
-                    selectedAddress,
-                    selectedPort,
-                )
+                val packet =
+                    DatagramPacket(
+                        PAYLOAD,
+                        PAYLOAD.size,
+                        selectedAddress,
+                        selectedPort,
+                    )
                 datagramSocket.send(packet)
                 sleepInterval()
             }
@@ -149,8 +156,7 @@ internal class SipCallSignalingKeepAlive(
         Thread.sleep(policy.intervalMs.coerceAtLeast(1_000L))
     }
 
-    private fun isCurrent(currentGeneration: Long): Boolean =
-        synchronized(lock) { generation == currentGeneration }
+    private fun isCurrent(currentGeneration: Long): Boolean = synchronized(lock) { generation == currentGeneration }
 
     private fun clearWorker(currentGeneration: Long) {
         synchronized(lock) {

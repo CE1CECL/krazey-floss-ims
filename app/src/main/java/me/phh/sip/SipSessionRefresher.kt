@@ -60,13 +60,14 @@ internal class SipSessionRefresher(
         localRefresher: String,
         defaultRefresher: String? = null,
     ) {
-        val selection = SipSessionTimerNegotiation.selectionFromHeaders(
-            headers = headers,
-            defaultRefresher = defaultRefresher,
-        ) ?: run {
-            cancel(callId, "Session-Expires omitted")
-            return
-        }
+        val selection =
+            SipSessionTimerNegotiation.selectionFromHeaders(
+                headers = headers,
+                defaultRefresher = defaultRefresher,
+            ) ?: run {
+                cancel(callId, "Session-Expires omitted")
+                return
+            }
         update(callId, selection, localRefresher)
     }
 
@@ -76,10 +77,11 @@ internal class SipSessionRefresher(
     ) {
         updateFromHeaders(
             callId = callId,
-            headers = SipSessionTimerNegotiation.responseHeadersForIncomingRequest(
-                requestHeaders = requestHeaders,
-                logTag = tag,
-            ),
+            headers =
+                SipSessionTimerNegotiation.responseHeadersForIncomingRequest(
+                    requestHeaders = requestHeaders,
+                    logTag = tag,
+                ),
             localRefresher = "uas",
         )
     }
@@ -96,15 +98,19 @@ internal class SipSessionRefresher(
             intervalSeconds = selection.intervalSeconds,
             attempt = 0,
             mode = if (localRefresh) Mode.LOCAL_REFRESH else Mode.PEER_EXPIRY,
-            delayMs = if (localRefresh) {
-                SipSessionTimerSchedule.localRefreshDelayMs(selection.intervalSeconds)
-            } else {
-                SipSessionTimerSchedule.peerExpiryDelayMs(selection.intervalSeconds)
-            },
+            delayMs =
+                if (localRefresh) {
+                    SipSessionTimerSchedule.localRefreshDelayMs(selection.intervalSeconds)
+                } else {
+                    SipSessionTimerSchedule.peerExpiryDelayMs(selection.intervalSeconds)
+                },
         )
     }
 
-    fun cancel(callId: String, reason: String) {
+    fun cancel(
+        callId: String,
+        reason: String,
+    ) {
         val old = synchronized(lock) { states.remove(callId) }
         old?.cseqNumber?.let { cseq ->
             responseCallbackRemover(callId, cseq, SipMethod.UPDATE)
@@ -115,9 +121,10 @@ internal class SipSessionRefresher(
     }
 
     fun cancelAll(reason: String) {
-        val oldStates = synchronized(lock) {
-            states.toMap().also { states.clear() }
-        }
+        val oldStates =
+            synchronized(lock) {
+                states.toMap().also { states.clear() }
+            }
         oldStates.forEach { (callId, state) ->
             state.cseqNumber?.let { cseq ->
                 responseCallbackRemover(callId, cseq, SipMethod.UPDATE)
@@ -139,12 +146,13 @@ internal class SipSessionRefresher(
         val state: State
         synchronized(lock) {
             old = states[callId]
-            state = State(
-                intervalSeconds = intervalSeconds.coerceAtLeast(MIN_INTERVAL_SECONDS),
-                generation = nextGeneration++,
-                attempt = attempt,
-                mode = mode,
-            )
+            state =
+                State(
+                    intervalSeconds = intervalSeconds.coerceAtLeast(MIN_INTERVAL_SECONDS),
+                    generation = nextGeneration++,
+                    attempt = attempt,
+                    mode = mode,
+                )
             states[callId] = state
         }
         old?.cseqNumber?.let { cseq ->
@@ -161,7 +169,10 @@ internal class SipSessionRefresher(
         )
     }
 
-    private fun sendIfCurrent(callId: String, generation: Int) {
+    private fun sendIfCurrent(
+        callId: String,
+        generation: Int,
+    ) {
         val state = currentState(callId, generation) ?: return
         if (state.mode == Mode.PEER_EXPIRY) {
             terminateAfterRefreshFailure(
@@ -170,19 +181,21 @@ internal class SipSessionRefresher(
             )
             return
         }
-        val dialog = dialogProvider(callId) ?: run {
-            cancel(callId, "dialog no longer exists")
-            return
-        }
-        val request = refreshRequest(dialog, state.intervalSeconds)
-        val cseq = request.headers["cseq"]
-            ?.firstOrNull()
-            ?.substringBefore(' ')
-            ?.toIntOrNull()
-            ?: run {
-                cancel(callId, "refresh CSeq missing")
+        val dialog =
+            dialogProvider(callId) ?: run {
+                cancel(callId, "dialog no longer exists")
                 return
             }
+        val request = refreshRequest(dialog, state.intervalSeconds)
+        val cseq =
+            request.headers["cseq"]
+                ?.firstOrNull()
+                ?.substringBefore(' ')
+                ?.toIntOrNull()
+                ?: run {
+                    cancel(callId, "refresh CSeq missing")
+                    return
+                }
         val inFlight = state.copy(cseqNumber = cseq)
         synchronized(lock) {
             if (states[callId] != state) return
@@ -218,10 +231,11 @@ internal class SipSessionRefresher(
 
         return when (response.statusCode) {
             in 200..299 -> {
-                val selection = SipSessionTimerNegotiation.selectionFromHeaders(
-                    headers = response.headers,
-                    defaultRefresher = "uac",
-                )
+                val selection =
+                    SipSessionTimerNegotiation.selectionFromHeaders(
+                        headers = response.headers,
+                        defaultRefresher = "uac",
+                    )
                 if (selection == null) {
                     cancel(callId, "refresh 2xx omitted Session-Expires")
                 } else {
@@ -229,6 +243,7 @@ internal class SipSessionRefresher(
                 }
                 true
             }
+
             408, 481 -> {
                 terminateAfterRefreshFailure(
                     callId = callId,
@@ -236,16 +251,19 @@ internal class SipSessionRefresher(
                 )
                 true
             }
+
             422 -> {
-                val interval = maxOf(
-                    state.intervalSeconds,
-                    SipSessionTimerNegotiation.minimumIntervalFromResponse(
-                        response.headers,
-                    ) ?: state.intervalSeconds,
-                )
+                val interval =
+                    maxOf(
+                        state.intervalSeconds,
+                        SipSessionTimerNegotiation.minimumIntervalFromResponse(
+                            response.headers,
+                        ) ?: state.intervalSeconds,
+                    )
                 retryOrTerminate(callId, state, interval, "rejected with 422")
                 true
             }
+
             else -> {
                 retryOrTerminate(
                     callId,
@@ -258,7 +276,10 @@ internal class SipSessionRefresher(
         }
     }
 
-    private fun handleTimeout(callId: String, state: State) {
+    private fun handleTimeout(
+        callId: String,
+        state: State,
+    ) {
         if (!isCurrent(callId, state)) return
         state.cseqNumber?.let { cseq ->
             responseCallbackRemover(callId, cseq, SipMethod.UPDATE)
@@ -285,41 +306,54 @@ internal class SipSessionRefresher(
         terminateAfterRefreshFailure(callId, reason)
     }
 
-    private fun terminateAfterRefreshFailure(callId: String, reason: String) {
+    private fun terminateAfterRefreshFailure(
+        callId: String,
+        reason: String,
+    ) {
         val terminationReason = "session refresh $reason"
         cancel(callId, terminationReason)
         terminateDialog(callId, terminationReason)
     }
 
-    private fun currentState(callId: String, generation: Int): State? =
+    private fun currentState(
+        callId: String,
+        generation: Int,
+    ): State? =
         synchronized(lock) {
             states[callId]?.takeIf { it.generation == generation }
         }
 
-    private fun isCurrent(callId: String, state: State): Boolean =
-        synchronized(lock) { states[callId] == state }
+    private fun isCurrent(
+        callId: String,
+        state: State,
+    ): Boolean = synchronized(lock) { states[callId] == state }
 
     private fun refreshRequest(
         dialog: SipSessionRefreshDialog,
         intervalSeconds: Int,
     ): SipRequest {
-        val supported = (dialog.requestHeaders["supported"].orEmpty()
-            .flatMap { it.split(',') } + "timer")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinct()
-        val headers = dialog.requestHeaders - "session-expires" - "min-se" + mapOf(
-            "supported" to supported,
-            "session-expires" to listOf(
-                "${intervalSeconds.coerceAtLeast(MIN_INTERVAL_SECONDS)};refresher=uac",
-            ),
-            "min-se" to listOf(MIN_INTERVAL_SECONDS.toString()),
-        )
+        val supported =
+            (
+                dialog.requestHeaders["supported"]
+                    .orEmpty()
+                    .flatMap { it.split(',') } + "timer"
+            ).map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+        val headers =
+            dialog.requestHeaders - "session-expires" - "min-se" +
+                mapOf(
+                    "supported" to supported,
+                    "session-expires" to
+                        listOf(
+                            "${intervalSeconds.coerceAtLeast(MIN_INTERVAL_SECONDS)};refresher=uac",
+                        ),
+                    "min-se" to listOf(MIN_INTERVAL_SECONDS.toString()),
+                )
         return SipRequest(
             method = SipMethod.UPDATE,
             destination = dialog.destination,
             headersParam = headers,
         )
     }
-
 }

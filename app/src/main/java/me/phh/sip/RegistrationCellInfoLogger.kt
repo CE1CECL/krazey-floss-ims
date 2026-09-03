@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.telephony.CellInfoGsm
@@ -9,7 +9,10 @@ import android.telephony.Rlog
 import android.telephony.TelephonyManager
 
 object RegistrationCellInfoLogger {
-    fun log(logTag: String, telephonyManager: TelephonyManager) {
+    fun log(
+        logTag: String,
+        telephonyManager: TelephonyManager,
+    ) {
         for (cell in telephonyManager.getAllCellInfo()) {
             if (cell is CellInfoLte) {
                 val cellSignalStrength = cell.cellSignalStrength

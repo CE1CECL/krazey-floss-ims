@@ -15,7 +15,10 @@ class SipSmsFallbackPolicy(
 ) {
     private val fallbackUntilByRealm = mutableMapOf<String, Long>()
 
-    fun learnFromSipMessageFailure(realm: String, statusCode: Int) {
+    fun learnFromSipMessageFailure(
+        realm: String,
+        statusCode: Int,
+    ) {
         // Only learn fallback from terminal MESSAGE-level failures before an RP
         // result arrives. These cover common SBC/core denials and unsupported
         // MESSAGE shapes without permanently disabling SMS-over-IMS.

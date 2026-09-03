@@ -1,12 +1,11 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.telephony.Rlog
 import java.net.DatagramPacket
 
 object SipRtpPacketLogger {
-    private fun shouldLogReceivedPacket(receivedCount: Int): Boolean =
-        receivedCount <= 10 || receivedCount % 50 == 0
+    private fun shouldLogReceivedPacket(receivedCount: Int): Boolean = receivedCount <= 10 || receivedCount % 50 == 0
 
     fun logReceivedPacket(
         logTag: String,
@@ -23,7 +22,7 @@ object SipRtpPacketLogger {
             "Received RTP packet #$receivedCount: " +
                 "from=${packet.address}:${packet.port} " +
                 "length=${packet.length} pt=$payloadType ft=$frameType " +
-                "codecBytes=$codecFrameSize"
+                "codecBytes=$codecFrameSize",
         )
     }
 }

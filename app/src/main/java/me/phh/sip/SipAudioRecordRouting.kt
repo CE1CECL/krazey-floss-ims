@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.content.Context
@@ -18,8 +18,10 @@ object SipAudioRecordRouting {
         // setPreferredDevice overrides HAL source-based routing while keeping
         // VOICE_COMMUNICATION semantics (call-mode output path stays correct).
         val audioManager = context.getSystemService(AudioManager::class.java)
-        val builtinMic = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
-            .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
+        val builtinMic =
+            audioManager
+                .getDevices(AudioManager.GET_DEVICES_INPUTS)
+                .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
         if (builtinMic != null) {
             audioRecord.preferredDevice = builtinMic
             Rlog.d(logTag, "AudioRecord preferredDevice set to builtin mic: id=${builtinMic.id} name=${builtinMic.productName}")

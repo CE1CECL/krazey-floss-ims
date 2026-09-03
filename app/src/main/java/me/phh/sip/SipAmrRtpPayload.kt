@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 internal data class SipAmrStorageFrame(
@@ -8,39 +8,47 @@ internal data class SipAmrStorageFrame(
 )
 
 internal object SipAmrRtpPayload {
-    private val amrNbSpeechBitsByFt = intArrayOf(
-        95,  // 4.75
-        103, // 5.15
-        118, // 5.90
-        134, // 6.70
-        148, // 7.40
-        159, // 7.95
-        204, // 10.2
-        244, // 12.2
-        39,  // SID
-    )
+    private val amrNbSpeechBitsByFt =
+        intArrayOf(
+            95, // 4.75
+            103, // 5.15
+            118, // 5.90
+            134, // 6.70
+            148, // 7.40
+            159, // 7.95
+            204, // 10.2
+            244, // 12.2
+            39, // SID
+        )
 
-    private val amrWbSpeechBitsByFt = intArrayOf(
-        132, // 6.60
-        177, // 8.85
-        253, // 12.65
-        285, // 14.25
-        317, // 15.85
-        365, // 18.25
-        397, // 19.85
-        461, // 23.05
-        477, // 23.85
-        40,  // SID
-    )
+    private val amrWbSpeechBitsByFt =
+        intArrayOf(
+            132, // 6.60
+            177, // 8.85
+            253, // 12.65
+            285, // 14.25
+            317, // 15.85
+            365, // 18.25
+            397, // 19.85
+            461, // 23.05
+            477, // 23.85
+            40, // SID
+        )
 
-    private fun speechBitsForFt(audioCodec: NegotiatedAudioCodec, ft: Int): Int? =
+    private fun speechBitsForFt(
+        audioCodec: NegotiatedAudioCodec,
+        ft: Int,
+    ): Int? =
         when (audioCodec.sdpCodecName) {
             "AMR" -> amrNbSpeechBitsByFt.getOrNull(ft)
             "AMR-WB" -> amrWbSpeechBitsByFt.getOrNull(ft)
             else -> null
         }
 
-    private fun rtpPayloadOffset(packet: ByteArray, packetLength: Int): Int? {
+    private fun rtpPayloadOffset(
+        packet: ByteArray,
+        packetLength: Int,
+    ): Int? {
         if (packetLength < 12) return null
 
         val csrcCount = packet[0].toInt() and 0x0f
@@ -84,7 +92,10 @@ internal object SipAmrRtpPayload {
         }
     }
 
-    fun storageFrameSizeBytes(audioCodec: NegotiatedAudioCodec, ft: Int): Int? {
+    fun storageFrameSizeBytes(
+        audioCodec: NegotiatedAudioCodec,
+        ft: Int,
+    ): Int? {
         val speechBits = speechBitsForFt(audioCodec, ft) ?: return null
         return 1 + ((speechBits + 7) / 8)
     }
@@ -122,14 +133,17 @@ internal object SipAmrRtpPayload {
         //
         // AMR-WB is not selected yet. When it is enabled, this helper is the
         // single place to adjust codec-mode request/no-data framing if needed.
-        val noDataPayload = when (audioCodec.sdpCodecName) {
-            // Preserve current AMR-NB behavior: CMR=7 requests 12.2 kbit/s.
-            "AMR" -> byteArrayOf(0x77.toByte(), 0xc0.toByte())
-            // For AMR-WB, do not request a specific codec mode during no-data.
-            // CMR=15, F=0, FT=15, Q=1.
-            "AMR-WB" -> byteArrayOf(0xf7.toByte(), 0xc0.toByte())
-            else -> byteArrayOf(0x77.toByte(), 0xc0.toByte())
-        }
+        val noDataPayload =
+            when (audioCodec.sdpCodecName) {
+                // Preserve current AMR-NB behavior: CMR=7 requests 12.2 kbit/s.
+                "AMR" -> byteArrayOf(0x77.toByte(), 0xc0.toByte())
+
+                // For AMR-WB, do not request a specific codec mode during no-data.
+                // CMR=15, F=0, FT=15, Q=1.
+                "AMR-WB" -> byteArrayOf(0xf7.toByte(), 0xc0.toByte())
+
+                else -> byteArrayOf(0x77.toByte(), 0xc0.toByte())
+            }
 
         return buildRtpHeader(
             payloadType = payloadType,
@@ -161,18 +175,22 @@ internal object SipAmrRtpPayload {
         if (storageFrame.size < frameSize) return null
 
         val cmr = 0x0f // no codec-mode request
-        val f = 0      // one frame only
+        val f = 0 // one frame only
 
         val payloadByte0 = (cmr shl 4) or (f shl 3) or (ft shr 1)
-        val payloadByte1 = ((ft and 1) shl 7) or
-            (q shl 6) or
-            (storageFrame[1].toUByte().toInt() shr 2)
+        val payloadByte1 =
+            ((ft and 1) shl 7) or
+                (q shl 6) or
+                (storageFrame[1].toUByte().toInt() shr 2)
 
-        val payloadRest = (1 until frameSize - 1).map { i ->
-            val lo = (storageFrame[i].toUByte().toInt() and 0x03) shl 6
-            val hi = (storageFrame[i + 1].toUByte().toInt() shr 2) and 0x3f
-            lo or hi
-        }.map { it.toByte() }.toByteArray()
+        val payloadRest =
+            (1 until frameSize - 1)
+                .map { i ->
+                    val lo = (storageFrame[i].toUByte().toInt() and 0x03) shl 6
+                    val hi = (storageFrame[i + 1].toUByte().toInt() shr 2) and 0x3f
+                    lo or hi
+                }.map { it.toByte() }
+                .toByteArray()
 
         val payload = byteArrayOf(payloadByte0.toByte(), payloadByte1.toByte()) + payloadRest
 

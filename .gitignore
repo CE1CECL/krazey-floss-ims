@@ -19,7 +19,5 @@ local.properties
 RE/binaries/
 RE/dumps/
 app.apk
-keys/*.pk8
-keys/*.pem
-keys/*.jks
-keys/*.keystore
+app-debug.apk
+app-release.apk

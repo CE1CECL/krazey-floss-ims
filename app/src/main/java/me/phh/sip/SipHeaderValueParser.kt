@@ -11,19 +11,44 @@ internal fun splitSipListHeader(value: String): List<String> {
     var commentDepth = 0
 
     fun finishValue() {
-        current.toString().trim().takeIf { it.isNotEmpty() }?.let(values::add)
+        current
+            .toString()
+            .trim()
+            .takeIf { it.isNotEmpty() }
+            ?.let(values::add)
         current.setLength(0)
     }
 
     value.forEach { character ->
         when {
-            escaped -> escaped = false
-            character == '\\' && (quoted || commentDepth > 0) -> escaped = true
-            character == '"' && commentDepth == 0 -> quoted = !quoted
-            !quoted && character == '<' && commentDepth == 0 -> angleDepth++
-            !quoted && character == '>' && commentDepth == 0 && angleDepth > 0 -> angleDepth--
-            !quoted && angleDepth == 0 && character == '(' -> commentDepth++
-            !quoted && angleDepth == 0 && character == ')' && commentDepth > 0 -> commentDepth--
+            escaped -> {
+                escaped = false
+            }
+
+            character == '\\' && (quoted || commentDepth > 0) -> {
+                escaped = true
+            }
+
+            character == '"' && commentDepth == 0 -> {
+                quoted = !quoted
+            }
+
+            !quoted && character == '<' && commentDepth == 0 -> {
+                angleDepth++
+            }
+
+            !quoted && character == '>' && commentDepth == 0 && angleDepth > 0 -> {
+                angleDepth--
+            }
+
+            !quoted && angleDepth == 0 && character == '(' -> {
+                commentDepth++
+            }
+
+            !quoted && angleDepth == 0 && character == ')' && commentDepth > 0 -> {
+                commentDepth--
+            }
+
             character == ',' && !quoted && angleDepth == 0 && commentDepth == 0 -> {
                 finishValue()
                 return@forEach
@@ -35,9 +60,7 @@ internal fun splitSipListHeader(value: String): List<String> {
     return values
 }
 
-internal fun recordRouteValues(headers: SipHeadersMap): List<String> =
-    headers["record-route"].orEmpty().flatMap(::splitSipListHeader)
+internal fun recordRouteValues(headers: SipHeadersMap): List<String> = headers["record-route"].orEmpty().flatMap(::splitSipListHeader)
 
 /** RFC 3261 section 12.1.2 route set for a dialog created by a UAC. */
-internal fun outgoingDialogRouteSet(headers: SipHeadersMap): List<String> =
-    recordRouteValues(headers).asReversed()
+internal fun outgoingDialogRouteSet(headers: SipHeadersMap): List<String> = recordRouteValues(headers).asReversed()

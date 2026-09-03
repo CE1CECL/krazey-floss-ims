@@ -1,9 +1,9 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import java.util.concurrent.atomic.AtomicInteger
 
-/* type definitions */
+// type definitions
 
 enum class SipMethod {
     REGISTER,
@@ -26,7 +26,7 @@ typealias SipHeader = String
 typealias SipHeadersMap = Map<String, List<SipHeader>>
 
 @OptIn(ExperimentalStdlibApi::class)
-abstract class SipMessage() {
+abstract class SipMessage {
     abstract val firstLine: String
     abstract val headers: SipHeadersMap
     abstract val body: ByteArray
@@ -42,12 +42,13 @@ abstract class SipMessage() {
                     "allow",
                     "security-client",
                     "security-server",
-                    "supported" -> header to listOf(values.joinToString(", "))
+                    "supported",
+                    -> header to listOf(values.joinToString(", "))
+
                     else -> header to values
                 }
-            }
-            .sortedBy {
-                when(it.first) {
+            }.sortedBy {
+                when (it.first) {
                     "via" -> 0
                     "p-preferred-identity" -> 1
                     "from" -> 2
@@ -65,20 +66,18 @@ abstract class SipMessage() {
                     "p-access-network-info" -> 14
                     "content-length" -> 15
                     "security-verify" -> 16
-                    else -> if(it.first.hashCode() > 0) it.first.hashCode() + 100 else 100 - it.first.hashCode()
+                    else -> if (it.first.hashCode() > 0) it.first.hashCode() + 100 else 100 - it.first.hashCode()
                 }
-            }
-            .fold(
+            }.fold(
                 emptyList<String>(),
                 { lines, (header, values) ->
                     lines +
                         values.map {
                             val newHeader = header.split("-").map { it.replaceFirstChar(Char::titlecase) }.joinToString("-")
-                            "$newHeader: ${it.toString()}"
+                            "$newHeader: $it"
                         }
-                }
-            )
-            .map { it.toByteArray() }
+                },
+            ).map { it.toByteArray() }
             .plus(listOf(ByteArray(0), this.body))
             .fold(this.firstLine.toByteArray(), { msg, line -> msg + "\r\n".toByteArray() + line })
 }
@@ -97,8 +96,7 @@ open class SipCommonMessage(
 ) : SipMessage() {
     override val headers: SipHeadersMap = if (autofill) completeHeaders() else headersParam
 
-    override fun toString(): String =
-        String(toByteArray(), Charsets.US_ASCII).replace("\r\n", "\n> ")
+    override fun toString(): String = String(toByteArray(), Charsets.US_ASCII).replace("\r\n", "\n> ")
 
     private fun completeHeaders(): SipHeadersMap {
         /* some headers can be automatically generated:
@@ -139,6 +137,7 @@ open class SipCommonMessage(
 }
 
 val cseqCounter = AtomicInteger(2)
+
 data class SipRequest(
     val method: SipMethod,
     val destination: String,
@@ -147,6 +146,7 @@ data class SipRequest(
     private val autofill: Boolean = true,
 ) : SipMessage() {
     private val message: SipCommonMessage
+
     init {
         val headers = if (autofill) completeRequestHeaders() else headersParam
 
@@ -161,6 +161,7 @@ data class SipRequest(
 
     override val firstLine = message.firstLine
     override val headers = message.headers
+
     override fun toString(): String = message.toString()
 
     private fun completeRequestHeaders(): SipHeadersMap {
@@ -195,6 +196,7 @@ data class SipResponse(
     private val autofill: Boolean = true,
 ) : SipMessage() {
     private val message: SipCommonMessage
+
     init {
         val headers = if (autofill) completeResponseHeaders() else headersParam
 
@@ -206,8 +208,10 @@ data class SipResponse(
                 autofill = autofill,
             )
     }
+
     override val firstLine = message.firstLine
     override val headers = message.headers
+
     override fun toString(): String = message.toString()
 
     private fun completeResponseHeaders(): SipHeadersMap {
@@ -243,6 +247,7 @@ private const val SIP_MAX_HEADER_BYTES = 64 * 1024
 private const val SIP_MAX_BODY_BYTES = 1024 * 1024
 
 private val splitHeader = "^\\s*([^:]+)\\s*:\\s*(.*)$".toRegex()
+
 @OptIn(ExperimentalStdlibApi::class)
 fun sipHeaderOf(line: String): Pair<String, List<SipHeader>>? {
     val (headerRaw, valueRaw) = splitHeader.find(line)?.destructured ?: return null
@@ -250,15 +255,25 @@ fun sipHeaderOf(line: String): Pair<String, List<SipHeader>>? {
         when (val headerLowCase = headerRaw.lowercase()) {
             // translate compact form to normal
             "i" -> "call-id"
+
             "m" -> "contact"
+
             "e" -> "content-encoding"
+
             "l" -> "content-length"
+
             "c" -> "content-type"
+
             "f" -> "from"
+
             "s" -> "subject"
+
             "k" -> "supported"
+
             "t" -> "to"
+
             "v" -> "via"
+
             else -> headerLowCase
         }
     val values =
@@ -275,7 +290,9 @@ fun sipHeaderOf(line: String): Pair<String, List<SipHeader>>? {
             "security-verify",
             "supported",
             "unsupported",
-            "via" -> splitSipListHeader(valueRaw)
+            "via",
+            -> splitSipListHeader(valueRaw)
+
             else -> listOf(valueRaw)
         }
 
@@ -287,7 +304,7 @@ private fun splitParams(
     value: String,
     splitRegex: Regex,
     paramRegex: Regex,
-    lowercase: Boolean
+    lowercase: Boolean,
 ): Pair<String, Map<String, String?>> {
     val paramSplit = splitRegex.findAll(value).toList().map { it.groupValues[0].trim() }
     return paramSplit[0] to
@@ -296,8 +313,7 @@ private fun splitParams(
             .map Map@{
                 val (a, b) = paramRegex.find(it)?.destructured ?: return@Map it.lowercase() to null
                 a.lowercase() to (if (lowercase) b.lowercase() else b)
-            }
-            .toMap()
+            }.toMap()
 }
 
 /* split parameters by semicolum.
@@ -308,8 +324,7 @@ private fun splitParams(
 private val splitParam = "(<[^>]*>|[^;]+?)+".toRegex()
 private val splitParamValue = "^([^=]+)=?(.*)".toRegex()
 
-fun SipHeader.getParams(): Pair<String, Map<String, String?>> =
-    splitParams(this, splitParam, splitParamValue, true)
+fun SipHeader.getParams(): Pair<String, Map<String, String?>> = splitParams(this, splitParam, splitParamValue, true)
 
 /* split www-authenticate header
  * the first separator is a space then comma separates but we just assume
@@ -319,8 +334,7 @@ fun SipHeader.getParams(): Pair<String, Map<String, String?>> =
 private val splitAuth = """("[^"]*"|[^ ,]+?)+""".toRegex()
 private val splitAuthValue = """^([^=]+)="?([^"]*)"?""".toRegex()
 
-fun SipHeader.getAuthValues(): Pair<String, Map<String, String?>> =
-    splitParams(this, splitAuth, splitAuthValue, false)
+fun SipHeader.getAuthValues(): Pair<String, Map<String, String?>> = splitParams(this, splitAuth, splitAuthValue, false)
 
 fun parseHeaders(
     sequence: Sequence<String>,
@@ -357,16 +371,18 @@ fun SipReader.parseHeaders(): SipHeadersMap = parseHeaders(this.lineSequence(), 
 fun SipReader.parseMessage(): SipMessage? {
     val firstLine = this.readLine() ?: return null
     val headers = this.parseHeaders()
-    val contentLengths = headers["content-length"].orEmpty().map { rawValue ->
-        val value = rawValue.trim().toLongOrNull()
-            ?: throw SipParseException("Invalid Content-Length: $rawValue")
-        if (value !in 0..SIP_MAX_BODY_BYTES.toLong()) {
-            throw SipParseException(
-                "Content-Length outside 0..$SIP_MAX_BODY_BYTES: $value",
-            )
+    val contentLengths =
+        headers["content-length"].orEmpty().map { rawValue ->
+            val value =
+                rawValue.trim().toLongOrNull()
+                    ?: throw SipParseException("Invalid Content-Length: $rawValue")
+            if (value !in 0..SIP_MAX_BODY_BYTES.toLong()) {
+                throw SipParseException(
+                    "Content-Length outside 0..$SIP_MAX_BODY_BYTES: $value",
+                )
+            }
+            value.toInt()
         }
-        value.toInt()
-    }
     if (contentLengths.distinct().size > 1) {
         throw SipParseException("Conflicting Content-Length headers: $contentLengths")
     }
@@ -384,23 +400,29 @@ fun SipReader.parseMessage(): SipMessage? {
         "OPTIONS",
         "MESSAGE",
         "UPDATE",
-        "NOTIFY" -> {
+        "NOTIFY",
+        -> {
             if (firstLineSplit.size != 3 || firstLineSplit[2] != "SIP/2.0") {
                 throw SipParseException("Malformed SIP request line")
             }
             return SipRequest(
                 method = SipMethod.valueOf(firstLineSplit[0]),
-                destination = firstLineSplit[1].takeIf { it.isNotBlank() }
-                    ?: throw SipParseException("SIP request URI is empty"),
+                destination =
+                    firstLineSplit[1].takeIf { it.isNotBlank() }
+                        ?: throw SipParseException("SIP request URI is empty"),
                 headersParam = headers,
                 body = body,
                 autofill = false,
             )
         }
+
         "SIP/2.0" -> {
-            val code = firstLineSplit.getOrNull(1)?.toIntOrNull()
-                ?.takeIf { it in 100..699 }
-                ?: throw SipParseException("Malformed SIP response status")
+            val code =
+                firstLineSplit
+                    .getOrNull(1)
+                    ?.toIntOrNull()
+                    ?.takeIf { it in 100..699 }
+                    ?: throw SipParseException("Malformed SIP response status")
             return SipResponse(
                 statusCode = code,
                 statusString = firstLineSplit.getOrNull(2).orEmpty(),
@@ -409,12 +431,14 @@ fun SipReader.parseMessage(): SipMessage? {
                 autofill = false,
             )
         }
-        else ->
+
+        else -> {
             return SipCommonMessage(
                 firstLine = firstLine,
                 headersParam = headers,
                 body = body,
                 autofill = false,
             )
+        }
     }
 }

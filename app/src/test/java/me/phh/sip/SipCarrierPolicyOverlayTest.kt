@@ -7,14 +7,16 @@ class SipCarrierPolicyOverlayTest {
     @Test
     fun `overlay changes named values and preserves defaults`() {
         val base = SipCarrierPolicy.defaultFor("450", "006")
-        val resolved = SipCarrierPolicyOverlay(
-            booleans = mapOf(
-                "control_socket_udp" to true,
-                "register_gruu_supported" to false,
-                "require_nonsess_aka" to true,
-            ),
-            registerHeaders = mapOf("P-Test" to listOf("one")),
-        ).applyTo(base)
+        val resolved =
+            SipCarrierPolicyOverlay(
+                booleans =
+                    mapOf(
+                        "control_socket_udp" to true,
+                        "register_gruu_supported" to false,
+                        "require_nonsess_aka" to true,
+                    ),
+                registerHeaders = mapOf("P-Test" to listOf("one")),
+            ).applyTo(base)
 
         require(resolved.isControlSocketUdp)
         require(!resolved.registerGruuSupported)
@@ -26,18 +28,21 @@ class SipCarrierPolicyOverlayTest {
 
     @Test
     fun `overlay converts status arrays and policy enums`() {
-        val resolved = SipCarrierPolicyOverlay(
-            strings = mapOf(
-                "outgoing_pani_policy" to "registration_access_tech",
-                "outgoing_invite_shape" to "singtel_compact_stock",
-                "udp_response_flow_policy" to "protected_client",
-            ),
-            stringArrays = mapOf(
-                "sms_fallback_sip_status_codes" to listOf("403", "503", "bad"),
-                "plain_tel_short_codes" to listOf("542"),
-            ),
-            longs = mapOf("sms_rp_result_wait_ms" to 20_000L),
-        ).applyTo(SipCarrierPolicy.defaultFor("286", "002"))
+        val resolved =
+            SipCarrierPolicyOverlay(
+                strings =
+                    mapOf(
+                        "outgoing_pani_policy" to "registration_access_tech",
+                        "outgoing_invite_shape" to "singtel_compact_stock",
+                        "udp_response_flow_policy" to "protected_client",
+                    ),
+                stringArrays =
+                    mapOf(
+                        "sms_fallback_sip_status_codes" to listOf("403", "503", "bad"),
+                        "plain_tel_short_codes" to listOf("542"),
+                    ),
+                longs = mapOf("sms_rp_result_wait_ms" to 20_000L),
+            ).applyTo(SipCarrierPolicy.defaultFor("286", "002"))
 
         require(
             resolved.outgoingPaniPolicy ==
@@ -58,35 +63,41 @@ class SipCarrierPolicyOverlayTest {
 
     @Test
     fun `overlay can replace imported Samsung runtime policy`() {
-        val base = SipCarrierPolicy.defaultFor("405", "854").copy(
-            transportPolicy = SipTransportPolicy.UDP_PREFERRED,
-            ipVersionPolicy = SipIpVersionPolicy.IPV4,
-            ipsecSupported = true,
-            preconditionPolicy = SipPreconditionPolicy(cellular = false),
-            supportedNetworks = setOf("lte"),
-            supportedServices = setOf("mmtel"),
-            serviceSwitches = mapOf("enableServiceSmsip" to false),
-        )
-        val resolved = SipCarrierPolicyOverlay(
-            booleans = mapOf(
-                "control_socket_udp" to false,
-                "ipsec_supported" to false,
-                "precondition_cellular" to true,
-                "enable_service_smsip" to true,
-            ),
-            strings = mapOf(
-                "ip_version_policy" to "ipv6",
-            ),
-            stringArrays = mapOf(
-                "supported_networks" to listOf("wifi"),
-                "supported_services" to listOf("mmtel", "smsip"),
-                "audio_codecs" to listOf("AMR", "AMR-WB"),
-            ),
-            longs = mapOf(
-                "registration_expires_seconds" to 600L,
-                "mss_size" to 1300L,
-            ),
-        ).applyTo(base)
+        val base =
+            SipCarrierPolicy.defaultFor("405", "854").copy(
+                transportPolicy = SipTransportPolicy.UDP_PREFERRED,
+                ipVersionPolicy = SipIpVersionPolicy.IPV4,
+                ipsecSupported = true,
+                preconditionPolicy = SipPreconditionPolicy(cellular = false),
+                supportedNetworks = setOf("lte"),
+                supportedServices = setOf("mmtel"),
+                serviceSwitches = mapOf("enableServiceSmsip" to false),
+            )
+        val resolved =
+            SipCarrierPolicyOverlay(
+                booleans =
+                    mapOf(
+                        "control_socket_udp" to false,
+                        "ipsec_supported" to false,
+                        "precondition_cellular" to true,
+                        "enable_service_smsip" to true,
+                    ),
+                strings =
+                    mapOf(
+                        "ip_version_policy" to "ipv6",
+                    ),
+                stringArrays =
+                    mapOf(
+                        "supported_networks" to listOf("wifi"),
+                        "supported_services" to listOf("mmtel", "smsip"),
+                        "audio_codecs" to listOf("AMR", "AMR-WB"),
+                    ),
+                longs =
+                    mapOf(
+                        "registration_expires_seconds" to 600L,
+                        "mss_size" to 1300L,
+                    ),
+            ).applyTo(base)
 
         require(resolved.transportPolicy == SipTransportPolicy.TCP)
         require(!resolved.useUdpControlSocket())
@@ -103,35 +114,43 @@ class SipCarrierPolicyOverlayTest {
 
     @Test
     fun `Tele2 profile replaces newer firmware call defaults`() {
-        val base = SipCarrierPolicy.defaultFor("401", "077").copy(
-            registerGruuSupported = true,
-            outgoingTargetUriType =
-                SipCarrierPolicy.OutgoingTargetUriType.SIP_USER_PHONE,
-            callSetupTimerPolicy = SipCallSetupTimerPolicy(
-                ringingTimeoutMs = 90_000L,
-                ringbackTimeoutMs = 90_000L,
-            ),
-            inviteFailurePolicy = SipInviteFailurePolicy(
-                csfbStatusCodes = setOf(380, 403, 500, 503, 1117),
-            ),
-        )
-        val resolved = SipCarrierPolicyOverlay(
-            booleans = mapOf(
-                "register_gruu_supported" to false,
-            ),
-            strings = mapOf(
-                "outgoing_target_domain_policy" to "REGISTRATION_REALM",
-                "outgoing_pani_policy" to "LTE_CELL_IDENTITY",
-                "outgoing_visited_network_policy" to "REGISTRATION_REALM",
-            ),
-            longs = mapOf(
-                "ringing_timeout_ms" to 120_000L,
-                "ringback_timeout_ms" to 120_000L,
-            ),
-            stringArrays = mapOf(
-                "invite_csfb_status_codes" to listOf("380", "403", "1117"),
-            ),
-        ).applyTo(base)
+        val base =
+            SipCarrierPolicy.defaultFor("401", "077").copy(
+                registerGruuSupported = true,
+                outgoingTargetUriType =
+                    SipCarrierPolicy.OutgoingTargetUriType.SIP_USER_PHONE,
+                callSetupTimerPolicy =
+                    SipCallSetupTimerPolicy(
+                        ringingTimeoutMs = 90_000L,
+                        ringbackTimeoutMs = 90_000L,
+                    ),
+                inviteFailurePolicy =
+                    SipInviteFailurePolicy(
+                        csfbStatusCodes = setOf(380, 403, 500, 503, 1117),
+                    ),
+            )
+        val resolved =
+            SipCarrierPolicyOverlay(
+                booleans =
+                    mapOf(
+                        "register_gruu_supported" to false,
+                    ),
+                strings =
+                    mapOf(
+                        "outgoing_target_domain_policy" to "REGISTRATION_REALM",
+                        "outgoing_pani_policy" to "LTE_CELL_IDENTITY",
+                        "outgoing_visited_network_policy" to "REGISTRATION_REALM",
+                    ),
+                longs =
+                    mapOf(
+                        "ringing_timeout_ms" to 120_000L,
+                        "ringback_timeout_ms" to 120_000L,
+                    ),
+                stringArrays =
+                    mapOf(
+                        "invite_csfb_status_codes" to listOf("380", "403", "1117"),
+                    ),
+            ).applyTo(base)
 
         require(!resolved.registerGruuSupported)
         require(
@@ -166,11 +185,13 @@ class SipCarrierPolicyOverlayTest {
                 registeredSipUri = "sip:+00000000001@ims.altel4g.kz",
             ) == "sip:+00000000000@ims.altel4g.kz;user=phone",
         )
-        val registrationRealmPolicy = SipCarrierPolicyOverlay(
-            strings = mapOf(
-                "outgoing_target_domain_policy" to "REGISTRATION_REALM",
-            ),
-        ).applyTo(base)
+        val registrationRealmPolicy =
+            SipCarrierPolicyOverlay(
+                strings =
+                    mapOf(
+                        "outgoing_target_domain_policy" to "REGISTRATION_REALM",
+                    ),
+            ).applyTo(base)
         require(
             registrationRealmPolicy.outgoingTargetUri(
                 telUri = "tel:+00000000000",
@@ -199,9 +220,10 @@ class SipCarrierPolicyOverlayTest {
         val base = SipCarrierPolicy.defaultFor("001", "001")
         require(!base.isFallbackEmergencyDialString("911"))
 
-        val resolved = SipCarrierPolicyOverlay(
-            stringArrays = mapOf("fallback_emergency_dial_strings" to listOf("911")),
-        ).applyTo(base)
+        val resolved =
+            SipCarrierPolicyOverlay(
+                stringArrays = mapOf("fallback_emergency_dial_strings" to listOf("911")),
+            ).applyTo(base)
 
         require(resolved.isFallbackEmergencyDialString("911"))
     }

@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.media.MediaCodec
@@ -105,14 +105,17 @@ object SipUplinkAudioEncoder {
                 val timestamp = nextTimestamp()
                 val storageFrame = encoderData.copyOfRange(bufPos, bufPos + frameSize)
                 if (!sendFrame(
-                    sequenceNumber,
-                    timestamp,
-                    storageFrame,
-                    currentFirstPacket,
-                    ft,
-                    frameSize,
-                    currentRealFrameCount,
-                )) break
+                        sequenceNumber,
+                        timestamp,
+                        storageFrame,
+                        currentFirstPacket,
+                        ft,
+                        frameSize,
+                        currentRealFrameCount,
+                    )
+                ) {
+                    break
+                }
 
                 currentFirstPacket = false
                 currentRealFrameCount++

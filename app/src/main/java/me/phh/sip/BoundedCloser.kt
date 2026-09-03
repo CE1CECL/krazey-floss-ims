@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.telephony.Rlog
@@ -14,15 +14,16 @@ object BoundedCloser {
     ) {
         val finished = AtomicBoolean(false)
         var failure: Throwable? = null
-        val closeThread = thread(name = "PhhImsClose-$label", isDaemon = true) {
-            try {
-                close()
-            } catch (t: Throwable) {
-                failure = t
-            } finally {
-                finished.set(true)
+        val closeThread =
+            thread(name = "PhhImsClose-$label", isDaemon = true) {
+                try {
+                    close()
+                } catch (t: Throwable) {
+                    failure = t
+                } finally {
+                    finished.set(true)
+                }
             }
-        }
 
         closeThread.join(timeoutMs)
         if (!finished.get()) {

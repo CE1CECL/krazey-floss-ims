@@ -11,11 +11,13 @@ internal object SipIncomingIdentityResolver {
 
     fun resolve(headers: SipHeadersMap): SipIncomingIdentity {
         val from = headers["from"]?.firstOrNull()
-        val privacyTokens = headers["privacy"].orEmpty()
-            .flatMap { it.split(',', ';') }
-            .map { it.trim().lowercase() }
-            .filter { it.isNotEmpty() }
-            .toSet()
+        val privacyTokens =
+            headers["privacy"]
+                .orEmpty()
+                .flatMap { it.split(',', ';') }
+                .map { it.trim().lowercase() }
+                .filter { it.isNotEmpty() }
+                .toSet()
         val explicitlyRestricted =
             "none" !in privacyTokens && privacyTokens.any { it in restrictingPrivacyTokens }
         val anonymousFrom = from?.let(::looksAnonymous).orDefault(false)

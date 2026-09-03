@@ -19,11 +19,12 @@ internal object SipMessageWriter {
         bytes: ByteArray,
         label: String,
     ): Boolean {
-        val firstLine = bytes
-            .toString(Charsets.US_ASCII)
-            .lineSequence()
-            .firstOrNull()
-            .orEmpty()
+        val firstLine =
+            bytes
+                .toString(Charsets.US_ASCII)
+                .lineSequence()
+                .firstOrNull()
+                .orEmpty()
         return try {
             synchronized(writer) {
                 writer.write(bytes)

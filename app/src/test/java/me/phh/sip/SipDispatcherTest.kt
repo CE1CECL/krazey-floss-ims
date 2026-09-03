@@ -1,20 +1,25 @@
 // SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
+import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
-import org.junit.Test
 
 class SipDispatcherTest {
-    private fun response(callId: String, cseq: String): SipResponse = SipResponse(
-        statusCode = 200,
-        statusString = "OK",
-        headersParam = mapOf(
-            "call-id" to listOf(callId),
-            "cseq" to listOf(cseq),
-        ),
-        autofill = false,
-    )
+    private fun response(
+        callId: String,
+        cseq: String,
+    ): SipResponse =
+        SipResponse(
+            statusCode = 200,
+            statusString = "OK",
+            headersParam =
+                mapOf(
+                    "call-id" to listOf(callId),
+                    "cseq" to listOf(cseq),
+                ),
+            autofill = false,
+        )
 
     @Test
     fun `completed callback does not remove replacement`() {
@@ -61,10 +66,12 @@ class SipDispatcherTest {
         val dispatcher = SipDispatcher("test")
         val firstWriter = ByteArrayOutputStream()
         val secondWriter = ByteArrayOutputStream()
-        val firstRequest = "OPTIONS sip:test@example.test SIP/2.0\r\n" +
-            "Call-ID: first\r\nCSeq: 1 OPTIONS\r\nContent-Length: 0\r\n\r\n"
-        val secondRequest = "OPTIONS sip:test@example.test SIP/2.0\r\n" +
-            "Call-ID: second\r\nCSeq: 2 OPTIONS\r\nContent-Length: 0\r\n\r\n"
+        val firstRequest =
+            "OPTIONS sip:test@example.test SIP/2.0\r\n" +
+                "Call-ID: first\r\nCSeq: 1 OPTIONS\r\nContent-Length: 0\r\n\r\n"
+        val secondRequest =
+            "OPTIONS sip:test@example.test SIP/2.0\r\n" +
+                "Call-ID: second\r\nCSeq: 2 OPTIONS\r\nContent-Length: 0\r\n\r\n"
 
         dispatcher.parseMessage(
             ByteArrayInputStream(firstRequest.toByteArray()).sipReader(),

@@ -21,6 +21,7 @@ internal class SipDispatcher(
 ) {
     private val lock = ReentrantLock()
     private var requestCallbacks: Map<SipMethod, (SipRequest) -> Int> = emptyMap()
+
     private data class ResponseTransactionKey(
         val callId: String,
         val cseqNumber: Int,
@@ -39,11 +40,17 @@ internal class SipDispatcher(
      */
     private val requestWriters = ConcurrentHashMap<String, OutputStream>()
 
-    fun setRequestCallback(method: SipMethod, cb: (SipRequest) -> Int) {
+    fun setRequestCallback(
+        method: SipMethod,
+        cb: (SipRequest) -> Int,
+    ) {
         lock.withLock { requestCallbacks += method to cb }
     }
 
-    fun setResponseCallback(callId: String, cb: (SipResponse) -> Boolean) {
+    fun setResponseCallback(
+        callId: String,
+        cb: (SipResponse) -> Boolean,
+    ) {
         lock.withLock { responseCallbacks += callId to cb }
     }
 
@@ -60,9 +67,10 @@ internal class SipDispatcher(
     fun removeResponseCallback(callId: String) {
         lock.withLock {
             responseCallbacks -= callId
-            transactionResponseCallbacks = transactionResponseCallbacks.filterKeys {
-                it.callId != callId
-            }
+            transactionResponseCallbacks =
+                transactionResponseCallbacks.filterKeys {
+                    it.callId != callId
+                }
         }
     }
 
@@ -103,20 +111,24 @@ internal class SipDispatcher(
 
     fun hasWriterForCallId(callId: String): Boolean = requestWriters.containsKey(callId)
 
-    fun parseMessage(reader: SipReader, writer: OutputStream): Boolean {
-        val msg = try {
-            reader.parseMessage()
-        } catch (e: SipParseException) {
-            Rlog.w(tag, "Rejecting malformed SIP message: ${e.message}")
-            return false
-        } catch (e: SocketException) {
-            Rlog.d(tag, "Got exception $e")
-            if ("$e" == "java.net.SocketException: Try again") {
-                // We sometimes seem to get EAGAIN.
-                return true
+    fun parseMessage(
+        reader: SipReader,
+        writer: OutputStream,
+    ): Boolean {
+        val msg =
+            try {
+                reader.parseMessage()
+            } catch (e: SipParseException) {
+                Rlog.w(tag, "Rejecting malformed SIP message: ${e.message}")
+                return false
+            } catch (e: SocketException) {
+                Rlog.d(tag, "Got exception $e")
+                if ("$e" == "java.net.SocketException: Try again") {
+                    // We sometimes seem to get EAGAIN.
+                    return true
+                }
+                throw e
             }
-            throw e
-        }
 
         Rlog.d(tag, "Received ${msg?.safeLogSummary() ?: "end-of-stream"}")
 
@@ -136,43 +148,48 @@ internal class SipDispatcher(
         val requestCb = lock.withLock { requestCallbacks[msg.method] }
         var status = 200
         if (requestCb != null) {
-            status = try {
-                requestCb(msg)
-            } catch (t: Throwable) {
-                Rlog.e(
-                    tag,
-                    "Request handler for ${msg.method} crashed; replying 500 and keeping SIP transport alive",
-                    t,
-                )
-                500
-            }
+            status =
+                try {
+                    requestCb(msg)
+                } catch (t: Throwable) {
+                    Rlog.e(
+                        tag,
+                        "Request handler for ${msg.method} crashed; replying 500 and keeping SIP transport alive",
+                        t,
+                    )
+                    500
+                }
         }
 
         if (status == 0) return true
 
-        val responseHeaders = msg.headers.filter { (k, _) ->
-            k in listOf("cseq", "via", "from", "to", "call-id")
-        } + when (status) {
-            486 -> "Reason: Q.850;cause=17;text=\"User busy\"".toSipHeadersMap()
-            else -> emptyMap()
-        }
+        val responseHeaders =
+            msg.headers.filter { (k, _) ->
+                k in listOf("cseq", "via", "from", "to", "call-id")
+            } +
+                when (status) {
+                    486 -> "Reason: Q.850;cause=17;text=\"User busy\"".toSipHeadersMap()
+                    else -> emptyMap()
+                }
 
-        val reply = SipResponse(
-            statusCode = status,
-            statusString = when (status) {
-                100 -> "Trying"
-                200 -> "OK"
-                480 -> "Temporarily Unavailable"
-                481 -> "Call/Transaction Does Not Exist"
-                486 -> "Busy Here"
-                487 -> "Request Terminated"
-                488 -> "Not Acceptable Here"
-                500 -> "Server Internal Error"
-                603 -> "Decline"
-                else -> "ERROR"
-            },
-            headersParam = responseHeaders,
-        )
+        val reply =
+            SipResponse(
+                statusCode = status,
+                statusString =
+                    when (status) {
+                        100 -> "Trying"
+                        200 -> "OK"
+                        480 -> "Temporarily Unavailable"
+                        481 -> "Call/Transaction Does Not Exist"
+                        486 -> "Busy Here"
+                        487 -> "Request Terminated"
+                        488 -> "Not Acceptable Here"
+                        500 -> "Server Internal Error"
+                        603 -> "Decline"
+                        else -> "ERROR"
+                    },
+                headersParam = responseHeaders,
+            )
 
         Rlog.d(tag, "Replying with ${reply.safeLogSummary()}")
         return SipMessageWriter.write(
@@ -191,11 +208,13 @@ internal class SipDispatcher(
         }
 
         val transactionKey = responseTransactionKey(response, callId)
-        val transactionCb = transactionKey?.let { key ->
-            lock.withLock { transactionResponseCallbacks[key] }
-        }
-        val responseCb = transactionCb ?: lock.withLock { responseCallbacks[callId] }
-            ?: return true
+        val transactionCb =
+            transactionKey?.let { key ->
+                lock.withLock { transactionResponseCallbacks[key] }
+            }
+        val responseCb =
+            transactionCb ?: lock.withLock { responseCallbacks[callId] }
+                ?: return true
 
         if (responseCb(response)) {
             lock.withLock {
@@ -210,6 +229,7 @@ internal class SipDispatcher(
         }
         return true
     }
+
     private fun responseTransactionKey(
         response: SipResponse,
         callId: String,
@@ -217,9 +237,10 @@ internal class SipDispatcher(
         val cseq = response.headers["cseq"]?.firstOrNull() ?: return null
         val parts = cseq.trim().split(Regex("\\s+"), limit = 2)
         val cseqNumber = parts.getOrNull(0)?.toIntOrNull() ?: return null
-        val method = parts.getOrNull(1)?.let { rawMethod ->
-            SipMethod.values().firstOrNull { it.name.equals(rawMethod, ignoreCase = true) }
-        } ?: return null
+        val method =
+            parts.getOrNull(1)?.let { rawMethod ->
+                SipMethod.values().firstOrNull { it.name.equals(rawMethod, ignoreCase = true) }
+            } ?: return null
         return ResponseTransactionKey(callId, cseqNumber, method)
     }
 }

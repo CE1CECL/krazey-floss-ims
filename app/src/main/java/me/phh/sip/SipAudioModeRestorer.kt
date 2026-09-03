@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.sip
 
 import android.content.Context
@@ -10,22 +10,26 @@ object SipAudioModeRestorer {
         logTag: String,
         context: Context,
         reason: String,
-        previousMode: Int? = null
+        previousMode: Int? = null,
     ) {
-        val audioManager = try {
-            context.getSystemService(AudioManager::class.java)
-        } catch (t: Throwable) {
-            Rlog.d(logTag, "Audio mode restore skipped; AudioManager unavailable: $reason", t)
-            return
-        }
+        val audioManager =
+            try {
+                context.getSystemService(AudioManager::class.java)
+            } catch (t: Throwable) {
+                Rlog.d(logTag, "Audio mode restore skipped; AudioManager unavailable: $reason", t)
+                return
+            }
 
         val currentMode = audioManager.mode
-        val wantedMode = when (previousMode ?: currentMode) {
-            AudioManager.MODE_IN_CALL,
-            AudioManager.MODE_IN_COMMUNICATION,
-            AudioManager.MODE_RINGTONE -> AudioManager.MODE_NORMAL
-            else -> previousMode ?: currentMode
-        }
+        val wantedMode =
+            when (previousMode ?: currentMode) {
+                AudioManager.MODE_IN_CALL,
+                AudioManager.MODE_IN_COMMUNICATION,
+                AudioManager.MODE_RINGTONE,
+                -> AudioManager.MODE_NORMAL
+
+                else -> previousMode ?: currentMode
+            }
 
         if (currentMode == wantedMode) {
             Rlog.d(logTag, "Audio mode restore not needed: reason=$reason currentMode=$currentMode previousMode=$previousMode")
@@ -47,6 +51,5 @@ object SipAudioModeRestorer {
         } catch (t: Throwable) {
             Rlog.d(logTag, "Setting audio mode failed during IMS audio restore: $reason", t)
         }
-    
     }
 }

@@ -47,21 +47,24 @@ internal object SipCarrierDatabaseXml {
                         "mapping" -> {
                             val canonical = parser.attribute("mccmnc").orEmpty()
                             if (canonical == query.mccMnc) {
-                                mappings += SipCarrierDatabaseMapping(
-                                    sourcePlmn = parser.attribute("plmn").orEmpty(),
-                                    canonicalMccMnc = canonical,
-                                    mnoName = parser.attribute("mno").orEmpty(),
-                                    subset = parser.attribute("subset").orEmpty(),
-                                    gid1 = parser.attribute("gid1").orEmpty(),
-                                    gid2 = parser.attribute("gid2").orEmpty(),
-                                    spn = parser.attribute("spname").orEmpty(),
-                                    blockGc = parser.attribute("block_gc").toBoolean(),
-                                    note = parser.attribute("note").orEmpty(),
-                                )
+                                mappings +=
+                                    SipCarrierDatabaseMapping(
+                                        sourcePlmn = parser.attribute("plmn").orEmpty(),
+                                        canonicalMccMnc = canonical,
+                                        mnoName = parser.attribute("mno").orEmpty(),
+                                        subset = parser.attribute("subset").orEmpty(),
+                                        gid1 = parser.attribute("gid1").orEmpty(),
+                                        gid2 = parser.attribute("gid2").orEmpty(),
+                                        spn = parser.attribute("spname").orEmpty(),
+                                        blockGc = parser.attribute("block_gc").toBoolean(),
+                                        note = parser.attribute("note").orEmpty(),
+                                    )
                             }
                         }
 
-                        "profiles" -> selected = SipCarrierDatabaseSelector.select(mappings, query)
+                        "profiles" -> {
+                            selected = SipCarrierDatabaseSelector.select(mappings, query)
+                        }
 
                         "profile" -> {
                             val mapping = selected
@@ -90,29 +93,40 @@ internal object SipCarrierDatabaseXml {
                             if (mapping != null && mnoMatches(mapping.mnoName, candidate) &&
                                 (exact || !globalSettingsAreExact)
                             ) {
-                                csfbStatusRules = parser.csv(
-                                    "all_csfb_error_code_list",
-                                ).toSet()
-                                voiceCsfbStatusRules = parser.csv(
-                                    "voice_csfb_error_code_list",
-                                ).toSet()
+                                csfbStatusRules =
+                                    parser
+                                        .csv(
+                                            "all_csfb_error_code_list",
+                                        ).toSet()
+                                voiceCsfbStatusRules =
+                                    parser
+                                        .csv(
+                                            "voice_csfb_error_code_list",
+                                        ).toSet()
                                 emergencyDomain = parser.attribute("emergency_domain_setting")
-                                emergencyCsfbStatusRules = parser.csv(
-                                    "e911_csfb_error_code_list",
-                                ).toSet()
-                                noSimEmergencyDomain = parser.attribute(
-                                    "no_sim_emergency_domain_setting",
-                                )
-                                supplementaryServiceDomain = parser.attribute(
-                                    "ss_domain_setting",
-                                )
-                                supplementaryServiceCallForwardUriType = parser.attribute(
-                                    "ss_cf_uri_type",
-                                )
+                                emergencyCsfbStatusRules =
+                                    parser
+                                        .csv(
+                                            "e911_csfb_error_code_list",
+                                        ).toSet()
+                                noSimEmergencyDomain =
+                                    parser.attribute(
+                                        "no_sim_emergency_domain_setting",
+                                    )
+                                supplementaryServiceDomain =
+                                    parser.attribute(
+                                        "ss_domain_setting",
+                                    )
+                                supplementaryServiceCallForwardUriType =
+                                    parser.attribute(
+                                        "ss_cf_uri_type",
+                                    )
                                 srvccVersion = parser.attribute("srvcc_version")?.toIntOrNull()
-                                defaultSmsFallbackEnabled = parser.attribute(
-                                    "enable_default_sms_fallback",
-                                )?.toBooleanStrictOrNull()
+                                defaultSmsFallbackEnabled =
+                                    parser
+                                        .attribute(
+                                            "enable_default_sms_fallback",
+                                        )?.toBooleanStrictOrNull()
                                 iwlanPaniFormat = parser.attribute("iwlan_pani_format")
                                 globalSettingsAreExact = exact
                             }
@@ -131,9 +145,10 @@ internal object SipCarrierDatabaseXml {
         val mapping = selected ?: SipCarrierDatabaseSelector.select(mappings, query) ?: return null
         return SipCarrierDatabaseRecord(
             mapping = mapping,
-            profiles = profiles.sortedByDescending {
-                it.mnoName.equals(mapping.mnoName, ignoreCase = true)
-            },
+            profiles =
+                profiles.sortedByDescending {
+                    it.mnoName.equals(mapping.mnoName, ignoreCase = true)
+                },
             serviceSwitches = switches,
             csfbStatusRules = csfbStatusRules,
             voiceCsfbStatusRules = voiceCsfbStatusRules,
@@ -142,7 +157,7 @@ internal object SipCarrierDatabaseXml {
             noSimEmergencyDomain = noSimEmergencyDomain,
             supplementaryServiceDomain = supplementaryServiceDomain,
             supplementaryServiceCallForwardUriType =
-                supplementaryServiceCallForwardUriType,
+            supplementaryServiceCallForwardUriType,
             srvccVersion = srvccVersion,
             defaultSmsFallbackEnabled = defaultSmsFallbackEnabled,
             iwlanPaniFormat = iwlanPaniFormat,
@@ -173,14 +188,16 @@ internal object SipCarrierDatabaseXml {
             supportRoaming = parser.attribute("support_roaming").toBoolean(),
             authAlgorithms = parser.csv("auth_algo"),
             encryptionAlgorithms = parser.csv("enc_algo"),
-            subscribeForReg = parser.attribute("subscribe_for_reg")?.toBooleanStrictOrNull()
-                ?: true,
+            subscribeForReg =
+                parser.attribute("subscribe_for_reg")?.toBooleanStrictOrNull()
+                    ?: true,
             enableGruu = parser.attribute("enable_gruu")?.toBooleanStrictOrNull() ?: true,
             registrationRetryBaseSeconds = parser.attribute("reg_retry_base_time")?.toIntOrNull(),
             registrationRetryMaxSeconds = parser.attribute("reg_retry_max_time")?.toIntOrNull(),
-            registrationPcscfPolicyOn403 = parser.attribute(
-                "reg_retry_pcscf_policy_on_403",
-            ),
+            registrationPcscfPolicyOn403 =
+                parser.attribute(
+                    "reg_retry_pcscf_policy_on_403",
+                ),
             registrationExpiresSeconds = parser.attribute("reg_expires")?.toIntOrNull(),
             services = parser.csv("services").toSet(),
             networks = parser.csv("networks").toSet(),
@@ -195,13 +212,17 @@ internal object SipCarrierDatabaseXml {
             mssSize = parser.attribute("mss_size")?.toIntOrNull(),
             pcscfPreference = parser.attribute("pcscf_pref")?.toIntOrNull(),
             sosUrnRequired = parser.attribute("sos_urn_required").toBoolean(),
-            blockDeregistrationOnSrvcc = parser.attribute(
-                "block_deregi_on_srvcc",
-            ).toBoolean(),
+            blockDeregistrationOnSrvcc =
+                parser
+                    .attribute(
+                        "block_deregi_on_srvcc",
+                    ).toBoolean(),
             lastPaniHeader = parser.attribute("last_pani_header").orEmpty(),
-            supportedGeolocationPhase = parser.attribute(
-                "supported_geolocation_phase",
-            )?.toIntOrNull(),
+            supportedGeolocationPhase =
+                parser
+                    .attribute(
+                        "supported_geolocation_phase",
+                    )?.toIntOrNull(),
             audioCodecs = parser.csv("audio_codec"),
             enableEvsCodec = parser.attribute("enable_evs_codec").toBoolean(),
         )
@@ -217,7 +238,10 @@ internal object SipCarrierDatabaseXml {
         return values
     }
 
-    private fun mnoMatches(mapped: String, candidate: String): Boolean {
+    private fun mnoMatches(
+        mapped: String,
+        candidate: String,
+    ): Boolean {
         if (mapped.equals(candidate, ignoreCase = true)) return true
         return mapped.substringBefore(':').equals(candidate, ignoreCase = true)
     }
@@ -225,6 +249,9 @@ internal object SipCarrierDatabaseXml {
     private fun XmlPullParser.attribute(name: String): String? = getAttributeValue(null, name)
 
     private fun XmlPullParser.csv(name: String): List<String> =
-        attribute(name).orEmpty().split(',').map(String::trim).filter(String::isNotEmpty)
-
+        attribute(name)
+            .orEmpty()
+            .split(',')
+            .map(String::trim)
+            .filter(String::isNotEmpty)
 }

@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0
 package me.phh.ims
 
 import android.app.AlarmManager
@@ -76,18 +76,19 @@ class PhhImsService : ImsService() {
             }
         }
 
-        val delayMs = if (exactAlarmScheduled) {
-            PERIODIC_REGISTER_EXACT_DELAY_MS
-        } else {
-            // Keep the inexact alarm's delivery window safely below the
-            // carrier-granted lifetime if exact alarm access is unavailable.
-            alarmManager.setAndAllowWhileIdle(
-                AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                nowMs + PERIODIC_REGISTER_INEXACT_FALLBACK_DELAY_MS,
-                pendingIntent,
-            )
-            PERIODIC_REGISTER_INEXACT_FALLBACK_DELAY_MS
-        }
+        val delayMs =
+            if (exactAlarmScheduled) {
+                PERIODIC_REGISTER_EXACT_DELAY_MS
+            } else {
+                // Keep the inexact alarm's delivery window safely below the
+                // carrier-granted lifetime if exact alarm access is unavailable.
+                alarmManager.setAndAllowWhileIdle(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    nowMs + PERIODIC_REGISTER_INEXACT_FALLBACK_DELAY_MS,
+                    pendingIntent,
+                )
+                PERIODIC_REGISTER_INEXACT_FALLBACK_DELAY_MS
+            }
 
         Rlog.d(TAG, "Alarm set exact=$exactAlarmScheduled delayMs=$delayMs")
     }
@@ -186,13 +187,14 @@ class PhhImsService : ImsService() {
     override fun onDestroy() {
         Rlog.d(TAG, "onDestroy")
 
-        val features = synchronized(stateLock) {
-            val snapshot = mmTelFeaturesBySlot.values.toList()
-            mmTelFeaturesBySlot.clear()
-            configsBySlot.clear()
-            imsRegistrationsBySlot.clear()
-            snapshot
-        }
+        val features =
+            synchronized(stateLock) {
+                val snapshot = mmTelFeaturesBySlot.values.toList()
+                mmTelFeaturesBySlot.clear()
+                configsBySlot.clear()
+                imsRegistrationsBySlot.clear()
+                snapshot
+            }
         features.forEach { feature ->
             try {
                 feature.onFeatureRemoved()

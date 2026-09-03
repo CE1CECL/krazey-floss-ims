@@ -31,31 +31,36 @@ internal object SipCarrierPolicyXml {
                     val mccMnc = parser.attribute("mccmnc")?.trim().orEmpty()
                     val selectedCarrierId = parser.attribute("carrierId")?.toIntOrNull()
                     val matchAny = parser.attribute("match").equals("any", ignoreCase = true)
-                    val name = parser.attribute("name").orEmpty().ifBlank {
-                        "mccmnc=$mccMnc carrierId=$selectedCarrierId"
-                    }
+                    val name =
+                        parser.attribute("name").orEmpty().ifBlank {
+                            "mccmnc=$mccMnc carrierId=$selectedCarrierId"
+                        }
                     val overlay = readCarrierOverlay(parser)
                     val mccMatches = mccMnc.isNotEmpty() && mccMnc == base.mccMnc
-                    val carrierIdMatches = selectedCarrierId != null &&
-                        carrierId >= 0 && selectedCarrierId == carrierId
-                    val selectorMatches = if (matchAny) {
-                        mccMatches || carrierIdMatches
-                    } else {
-                        (mccMnc.isEmpty() || mccMatches) &&
-                            (selectedCarrierId == null || carrierIdMatches)
-                    }
+                    val carrierIdMatches =
+                        selectedCarrierId != null &&
+                            carrierId >= 0 && selectedCarrierId == carrierId
+                    val selectorMatches =
+                        if (matchAny) {
+                            mccMatches || carrierIdMatches
+                        } else {
+                            (mccMnc.isEmpty() || mccMatches) &&
+                                (selectedCarrierId == null || carrierIdMatches)
+                        }
                     if (selectorMatches) {
-                        selected += SelectedOverlay(
-                            specificity = if (matchAny) {
-                                1
-                            } else {
-                                (if (mccMnc.isNotEmpty()) 1 else 0) +
-                                    (if (selectedCarrierId != null) 1 else 0)
-                            },
-                            order = order,
-                            name = name,
-                            overlay = overlay,
-                        )
+                        selected +=
+                            SelectedOverlay(
+                                specificity =
+                                    if (matchAny) {
+                                        1
+                                    } else {
+                                        (if (mccMnc.isNotEmpty()) 1 else 0) +
+                                            (if (selectedCarrierId != null) 1 else 0)
+                                    },
+                                order = order,
+                                name = name,
+                                overlay = overlay,
+                            )
                     }
                     order++
                 }
@@ -73,7 +78,8 @@ internal object SipCarrierPolicyXml {
         }
 
         var resolved = base
-        selected.sortedWith(compareBy<SelectedOverlay> { it.specificity }.thenBy { it.order })
+        selected
+            .sortedWith(compareBy<SelectedOverlay> { it.specificity }.thenBy { it.order })
             .forEach { match ->
                 Rlog.i(
                     TAG,
@@ -95,59 +101,65 @@ internal object SipCarrierPolicyXml {
 
         while (true) {
             when (parser.next()) {
-                XmlPullParser.START_TAG -> when (parser.name) {
-                    "boolean" -> {
-                        val name = parser.attribute("name") ?: continue
-                        parser.attribute("value")?.toBooleanStrictOrNull()?.let {
-                            booleans[name] = it
+                XmlPullParser.START_TAG -> {
+                    when (parser.name) {
+                        "boolean" -> {
+                            val name = parser.attribute("name") ?: continue
+                            parser.attribute("value")?.toBooleanStrictOrNull()?.let {
+                                booleans[name] = it
+                            }
                         }
-                    }
 
-                    "long" -> {
-                        val name = parser.attribute("name") ?: continue
-                        parser.attribute("value")?.toLongOrNull()?.let { longs[name] = it }
-                    }
-
-                    "string" -> {
-                        val name = parser.attribute("name") ?: continue
-                        parser.attribute("value")?.let { strings[name] = it }
-                    }
-
-                    "string-array" -> {
-                        currentArray = parser.attribute("name")
-                        currentArray?.let { arrays.getOrPut(it) { mutableListOf() } }
-                    }
-
-                    "item" -> {
-                        val arrayName = currentArray ?: continue
-                        parser.attribute("value")?.let {
-                            arrays.getOrPut(arrayName) { mutableListOf() } += it
+                        "long" -> {
+                            val name = parser.attribute("name") ?: continue
+                            parser.attribute("value")?.toLongOrNull()?.let { longs[name] = it }
                         }
-                    }
 
-                    "register-header" -> {
-                        val name = parser.attribute("name") ?: continue
-                        val value = parser.attribute("value") ?: continue
-                        headers.getOrPut(name) { mutableListOf() } += value
+                        "string" -> {
+                            val name = parser.attribute("name") ?: continue
+                            parser.attribute("value")?.let { strings[name] = it }
+                        }
+
+                        "string-array" -> {
+                            currentArray = parser.attribute("name")
+                            currentArray?.let { arrays.getOrPut(it) { mutableListOf() } }
+                        }
+
+                        "item" -> {
+                            val arrayName = currentArray ?: continue
+                            parser.attribute("value")?.let {
+                                arrays.getOrPut(arrayName) { mutableListOf() } += it
+                            }
+                        }
+
+                        "register-header" -> {
+                            val name = parser.attribute("name") ?: continue
+                            val value = parser.attribute("value") ?: continue
+                            headers.getOrPut(name) { mutableListOf() } += value
+                        }
                     }
                 }
 
-                XmlPullParser.END_TAG -> when (parser.name) {
-                    "string-array" -> currentArray = null
-                    "carrier" -> return SipCarrierPolicyOverlay(
-                        booleans = booleans,
-                        longs = longs,
-                        strings = strings,
-                        stringArrays = arrays,
-                        registerHeaders = headers,
-                    )
+                XmlPullParser.END_TAG -> {
+                    when (parser.name) {
+                        "string-array" -> currentArray = null
+
+                        "carrier" -> return SipCarrierPolicyOverlay(
+                            booleans = booleans,
+                            longs = longs,
+                            strings = strings,
+                            stringArrays = arrays,
+                            registerHeaders = headers,
+                        )
+                    }
                 }
 
-                XmlPullParser.END_DOCUMENT -> return SipCarrierPolicyOverlay()
+                XmlPullParser.END_DOCUMENT -> {
+                    return SipCarrierPolicyOverlay()
+                }
             }
         }
     }
 
-    private fun XmlPullParser.attribute(name: String): String? =
-        getAttributeValue(null, name)
+    private fun XmlPullParser.attribute(name: String): String? = getAttributeValue(null, name)
 }
