@@ -30,7 +30,7 @@ internal object SipAccessNetworkHeaders {
                     ?.firstOrNull {
                         it.transportType == AccessNetworkConstants.TRANSPORT_TYPE_WWAN &&
                             (it.domain and NetworkRegistrationInfo.DOMAIN_PS) != 0 &&
-                            it.isNetworkRegistered
+                            it.isRegistered
                     }
             val cellIdentity = registration?.cellIdentity as? CellIdentityLte
             if (cellIdentity == null) {

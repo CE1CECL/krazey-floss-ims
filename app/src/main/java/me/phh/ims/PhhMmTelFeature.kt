@@ -52,7 +52,7 @@ private fun ServiceState.phhIwlanRegistrationForIms(): NetworkRegistrationInfo? 
 private fun ServiceState.isIwlanReadyForPhhIms(): Boolean {
     val iwlanRegistration = phhIwlanRegistrationForIms() ?: return false
 
-    val iwlanRegistered = iwlanRegistration.isNetworkRegistered
+    val iwlanRegistered = iwlanRegistration.isRegistered
 
     val iwlanRat =
         iwlanRegistration.accessNetworkTechnology == TelephonyManager.NETWORK_TYPE_IWLAN
@@ -80,7 +80,7 @@ private fun ServiceState.phhImsReadyDebug(registeredPlmn: String? = phhRegistere
     val iwlanRegistration = phhIwlanRegistrationForIms()
 
     return "state=$state registeredPlmn=$registeredPlmn " +
-        "iwlanRegistered=${iwlanRegistration?.isNetworkRegistered} " +
+        "iwlanRegistered=${iwlanRegistration?.isRegistered} " +
         "iwlanRat=${iwlanRegistration?.accessNetworkTechnology}"
 }
 
@@ -387,7 +387,7 @@ class PhhMmTelFeature(
             return activeSubId
         }
 
-        val frameworkSlotSubId = SubscriptionManager.getSubscriptionId(slotId)
+        val frameworkSlotSubId = SubscriptionManager.getSubId(slotId)[0]
         if (SubscriptionManager.isValidSubscriptionId(frameworkSlotSubId)) {
             return frameworkSlotSubId
         }
